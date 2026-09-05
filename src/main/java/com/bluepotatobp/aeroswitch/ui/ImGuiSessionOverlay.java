@@ -5,6 +5,7 @@ import com.bluepotatobp.aeroswitch.session.SessionManager;
 import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.ImGuiStyle;
+import imgui.ImDrawList;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiWindowFlags;
@@ -20,6 +21,7 @@ public final class ImGuiSessionOverlay {
     private static final ImGuiImplGl3 GL3 = new ImGuiImplGl3();
     private static boolean initialized;
     private static boolean unavailable;
+    private static float guiScale;
 
     private ImGuiSessionOverlay() { }
 
@@ -29,11 +31,13 @@ public final class ImGuiSessionOverlay {
         Minecraft client = Minecraft.getInstance();
         try {
             initialize(client);
+            updateScale(client);
             GLFW.newFrame();
             GL3.newFrame();
             ImGui.newFrame();
             if (manager.sessionCount() > 0) drawStatusStrip(manager);
-            if (client.gui.screen() instanceof SessionScreen) drawManager(client, manager);
+            drawPaneBorders(manager);
+            if (manager.focusedScreen() instanceof SessionScreen) drawManager(client, manager);
             ImGui.render();
             GL3.renderDrawData(ImGui.getDrawData());
         } catch (Throwable error) {
@@ -55,19 +59,29 @@ public final class ImGuiSessionOverlay {
         ImGui.createContext();
         ImGuiIO io = ImGui.getIO();
         io.setIniFilename(null);
-        style(ImGui.getStyle());
+        guiScale = Math.max(1.0F, client.getWindow().getGuiScale());
+        style(ImGui.getStyle(), guiScale);
+        io.setFontGlobalScale(guiScale);
         if (!GLFW.init(client.getWindow().handle(), true) || !GL3.init("#version 150")) {
             throw new IllegalStateException("Could not initialize ImGui backends");
         }
         initialized = true;
     }
 
-    private static void style(ImGuiStyle style) {
-        style.setWindowRounding(6.0F);
-        style.setFrameRounding(4.0F);
-        style.setWindowBorderSize(1.0F);
-        style.setFramePadding(9.0F, 6.0F);
-        style.setItemSpacing(8.0F, 8.0F);
+    private static void updateScale(Minecraft client) {
+        float currentScale = Math.max(1.0F, client.getWindow().getGuiScale());
+        if (currentScale == guiScale) return;
+        ImGui.getStyle().scaleAllSizes(currentScale / guiScale);
+        ImGui.getIO().setFontGlobalScale(currentScale);
+        guiScale = currentScale;
+    }
+
+    private static void style(ImGuiStyle style, float scale) {
+        style.setWindowRounding(6.0F * scale);
+        style.setFrameRounding(4.0F * scale);
+        style.setWindowBorderSize(scale);
+        style.setFramePadding(9.0F * scale, 6.0F * scale);
+        style.setItemSpacing(8.0F * scale, 8.0F * scale);
         style.setColor(ImGuiCol.WindowBg, 24, 27, 31, 245);
         style.setColor(ImGuiCol.Border, 75, 83, 92, 210);
         style.setColor(ImGuiCol.FrameBg, 43, 48, 54, 255);
@@ -82,7 +96,7 @@ public final class ImGuiSessionOverlay {
     }
 
     private static void drawStatusStrip(SessionManager manager) {
-        ImGui.setNextWindowPos(12.0F, 12.0F, ImGuiCond.Always);
+        ImGui.setNextWindowPos(12.0F * guiScale, 12.0F * guiScale, ImGuiCond.Always);
         ImGui.setNextWindowBgAlpha(0.82F);
         int flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize
                 | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoInputs;
@@ -95,10 +109,48 @@ public final class ImGuiSessionOverlay {
         ImGui.end();
     }
 
+    private static void drawPaneBorders(SessionManager manager) {
+        if (!manager.isSplitPresented()) return;
+        ImGuiIO io = ImGui.getIO();
+        float width = io.getDisplaySizeX();
+        float height = io.getDisplaySizeY();
+        float thickness = Math.max(2.0F, 2.0F * guiScale);
+        float inset = thickness / 2.0F;
+        int activeColor = 0xFFAFCB68;
+        int inactiveColor = 0xFF5C534B;
+        ImDrawList draw = ImGui.getBackgroundDrawList();
+
+        if (manager.layoutMode() == SessionManager.LayoutMode.SPLIT_VERTICAL) {
+            float middle = width / 2.0F;
+            int leftColor = manager.focusedSlot() == 0 ? activeColor : inactiveColor;
+            int rightColor = manager.focusedSlot() == 1 ? activeColor : inactiveColor;
+            draw.addLine(inset, inset, middle, inset, leftColor, thickness);
+            draw.addLine(inset, height - inset, middle, height - inset, leftColor, thickness);
+            draw.addLine(inset, inset, inset, height - inset, leftColor, thickness);
+            draw.addLine(middle, inset, width - inset, inset, rightColor, thickness);
+            draw.addLine(middle, height - inset, width - inset, height - inset, rightColor, thickness);
+            draw.addLine(width - inset, inset, width - inset, height - inset, rightColor, thickness);
+            draw.addLine(middle, inset, middle, height - inset,
+                    manager.focusedSlot() == 0 ? leftColor : rightColor, thickness);
+        } else {
+            float middle = height / 2.0F;
+            int topColor = manager.focusedSlot() == 0 ? activeColor : inactiveColor;
+            int bottomColor = manager.focusedSlot() == 1 ? activeColor : inactiveColor;
+            draw.addLine(inset, inset, width - inset, inset, topColor, thickness);
+            draw.addLine(inset, inset, inset, middle, topColor, thickness);
+            draw.addLine(width - inset, inset, width - inset, middle, topColor, thickness);
+            draw.addLine(inset, height - inset, width - inset, height - inset, bottomColor, thickness);
+            draw.addLine(inset, middle, inset, height - inset, bottomColor, thickness);
+            draw.addLine(width - inset, middle, width - inset, height - inset, bottomColor, thickness);
+            draw.addLine(inset, middle, width - inset, middle,
+                    manager.focusedSlot() == 0 ? topColor : bottomColor, thickness);
+        }
+    }
+
     private static void drawManager(Minecraft client, SessionManager manager) {
         ImGuiIO io = ImGui.getIO();
-        float panelWidth = Math.min(600.0F, io.getDisplaySizeX() - 24.0F);
-        float panelHeight = Math.min(500.0F, io.getDisplaySizeY() - 24.0F);
+        float panelWidth = Math.min(600.0F * guiScale, io.getDisplaySizeX() - 24.0F * guiScale);
+        float panelHeight = Math.min(500.0F * guiScale, io.getDisplaySizeY() - 24.0F * guiScale);
         ImGui.setNextWindowPos(io.getDisplaySizeX() / 2.0F, io.getDisplaySizeY() / 2.0F,
                 ImGuiCond.Always, 0.5F, 0.5F);
         ImGui.setNextWindowSize(panelWidth, panelHeight, ImGuiCond.Always);
@@ -119,14 +171,14 @@ public final class ImGuiSessionOverlay {
             ImGui.separator();
             boolean full = manager.sessionCount() >= 2;
             ImGui.beginDisabled(full);
-            if (ImGui.button("Open local world", 170.0F, 32.0F)) {
+            if (ImGui.button("Open local world", 170.0F * guiScale, 32.0F * guiScale)) {
                 defer(client, () -> {
                     manager.prepareNewSession();
                     client.gui.setScreen(new SelectWorldScreen(new SessionScreen()));
                 });
             }
             ImGui.sameLine();
-            if (ImGui.button("Join server", 170.0F, 32.0F)) {
+            if (ImGui.button("Join server", 170.0F * guiScale, 32.0F * guiScale)) {
                 defer(client, () -> {
                     manager.prepareNewSession();
                     client.gui.setScreen(new JoinMultiplayerScreen(new SessionScreen()));
@@ -134,7 +186,7 @@ public final class ImGuiSessionOverlay {
             }
             ImGui.endDisabled();
             ImGui.sameLine();
-            if (ImGui.button("Done", 100.0F, 32.0F)) defer(client, () -> client.gui.setScreen(null));
+            if (ImGui.button("Done", 100.0F * guiScale, 32.0F * guiScale)) defer(client, () -> client.gui.setScreen(null));
         }
         ImGui.end();
     }
@@ -154,9 +206,9 @@ public final class ImGuiSessionOverlay {
         String kind = manager.isLocalSession(slot) ? "Local world" : "Remote server";
         ImGui.textColored(focused ? 0.41F : 0.72F, focused ? 0.80F : 0.72F,
                 focused ? 0.69F : 0.72F, 1.0F, focused ? kind + " | FOCUSED" : kind + " | INACTIVE");
-        ImGui.sameLine(ImGui.getWindowWidth() - 210.0F);
+        ImGui.sameLine(ImGui.getWindowWidth() - 210.0F * guiScale);
         ImGui.beginDisabled(focused);
-        if (ImGui.button("Focus##" + slot, 90.0F, 28.0F)) {
+        if (ImGui.button("Focus##" + slot, 90.0F * guiScale, 28.0F * guiScale)) {
             defer(client, () -> {
                 manager.focus(slot);
                 client.gui.setScreen(null);
@@ -164,7 +216,7 @@ public final class ImGuiSessionOverlay {
         }
         ImGui.endDisabled();
         ImGui.sameLine();
-        if (ImGui.button("Save / close##" + slot, 105.0F, 28.0F)) {
+        if (ImGui.button("Save / close##" + slot, 105.0F * guiScale, 28.0F * guiScale)) {
             defer(client, () -> {
                 manager.close(slot);
                 client.gui.setScreen(new SessionScreen());
@@ -181,7 +233,7 @@ public final class ImGuiSessionOverlay {
         }
 
         int[] fps = {manager.inactiveFps(slot)};
-        ImGui.setNextItemWidth(Math.max(180.0F, ImGui.getContentRegionAvailX()));
+        ImGui.setNextItemWidth(Math.max(180.0F * guiScale, ImGui.getContentRegionAvailX()));
         if (ImGui.sliderInt("Inactive visible FPS##" + slot, fps, 1, 60, "%d FPS")) {
             manager.setInactiveFps(slot, fps[0]);
         }

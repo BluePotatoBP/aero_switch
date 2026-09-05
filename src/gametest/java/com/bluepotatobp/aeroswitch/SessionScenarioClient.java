@@ -3,6 +3,7 @@ package com.bluepotatobp.aeroswitch;
 import com.bluepotatobp.aeroswitch.diagnostics.ClientStateSnapshot;
 import com.bluepotatobp.aeroswitch.mixin.TestMouseAccessor;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
+import com.bluepotatobp.aeroswitch.ui.SessionScreen;
 import com.mojang.blaze3d.platform.NativeImage;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -12,6 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -21,6 +23,7 @@ import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.opengl.GL11C;
 
 /** Normal-client scenario: Fabric's game-test scheduler supports only one server thread. */
 public final class SessionScenarioClient implements ClientModInitializer {
@@ -82,7 +85,13 @@ public final class SessionScenarioClient implements ClientModInitializer {
                     playerA = client.player;
                     require(serverA != null && sessions.sessionCount() == 1, "First session must be adopted");
                     serverA.execute(() -> serverA.overworld().setBlock(MARKER, Blocks.EMERALD_BLOCK.defaultBlockState(), 3));
+                        sessions.setLayoutMode(SessionManager.LayoutMode.SPLIT_VERTICAL);
                     sessions.prepareNewSession();
+                        require(sessions.isSplitPresented(), "Pending second session must enter split presentation");
+                        while (GL11C.glGetError() != GL11C.GL_NO_ERROR) { }
+                        sessions.presentationTarget(client.gameRenderer.mainRenderTarget());
+                        require(GL11C.glGetError() == GL11C.GL_NO_ERROR,
+                            "Pending split composition produced an OpenGL error");
                     transition(Phase.SECOND);
                     open(client, "AeroB");
                 }
@@ -98,6 +107,22 @@ public final class SessionScenarioClient implements ClientModInitializer {
                     require(playerA.connection.getConnection().isConnected(), "Opening B must not disconnect A");
                     require(sessions.focusedSlot() == 1, "New session B should be focused");
                     sessions.setLayoutMode(SessionManager.LayoutMode.SPLIT_VERTICAL);
+                        SessionScreen managerScreen = new SessionScreen();
+                        sessions.setFocusedScreen(managerScreen);
+                        require(sessions.focusedScreen() == managerScreen,
+                            "Manager screen must belong to focused session B");
+                        require(managerScreen.width == sessions.renderGuiWidth(
+                                client.getWindow().getWidth(), client.getWindow().getGuiScale()),
+                            "Vanilla screens must initialize at pane width");
+                        sessions.setFocusedScreen(null);
+                        CameraType cameraB = client.options.getCameraType().cycle();
+                        client.options.setCameraType(cameraB);
+                        sessions.focus(0);
+                        require(client.options.getCameraType() != cameraB,
+                            "Perspective change leaked from session B into session A");
+                        sessions.focus(1);
+                        require(client.options.getCameraType() == cameraB,
+                            "Session B perspective was not restored on focus");
                     require(sessions.sessionCameraEntity(0) == playerA && sessions.sessionCameraEntity(1) == playerB,
                             "Each renderer camera must remain attached to its own player");
                     require(sessions.focusPane(0, 0, 854, 480) && sessions.focusedSlot() == 0,

@@ -130,6 +130,7 @@ public final class SessionManager {
         focused = target;
         next.install(mc());
         mc().gui.setScreen(new TitleScreen());
+        updateVisibility();
         publishPause();
     }
 
@@ -141,6 +142,7 @@ public final class SessionManager {
         if (scoped != 0) throw new IllegalStateException("Cannot change focus inside a scoped callback");
         if (target == active) return;
         KeyMapping.releaseAll();
+        active.capture(mc());
         active = target;
         focused = slot;
         target.install(mc());
@@ -192,6 +194,26 @@ public final class SessionManager {
         adopt();
         layoutMode = value;
         updateVisibility();
+    }
+
+    public Screen focusedScreen() {
+        checkThread();
+        adopt();
+        ClientSession target = slots[focused];
+        return target == null ? null : target.gui.screen();
+    }
+
+    public void setFocusedScreen(Screen screen) {
+        checkThread();
+        adopt();
+        ClientSession target = slots[focused];
+        if (target == null) return;
+        if (target != active) {
+            active.capture(mc());
+            active = target;
+            target.install(mc());
+        }
+        mc().gui.setScreen(screen);
     }
 
     public boolean focusPane(double x, double y, int width, int height) {
@@ -352,14 +374,14 @@ public final class SessionManager {
     }
 
     public int renderWidth(int physicalWidth) {
-        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_VERTICAL || occupiedCount() != 2)
+        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_VERTICAL || !isSplitPresented())
             return physicalWidth;
         int firstWidth = physicalWidth / 2;
         return active.slot == 0 ? firstWidth : physicalWidth - firstWidth;
     }
 
     public int renderHeight(int physicalHeight) {
-        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_HORIZONTAL || occupiedCount() != 2)
+        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_HORIZONTAL || !isSplitPresented())
             return physicalHeight;
         int firstHeight = physicalHeight / 2;
         return active.slot == 0 ? firstHeight : physicalHeight - firstHeight;
@@ -373,14 +395,33 @@ public final class SessionManager {
         return (int) Math.ceil(renderHeight(physicalHeight) / (double) guiScale);
     }
 
+    /** Maps a full-window scaled mouse X into the focused pane's local GUI X. */
+    public double paneScaledX(double fullScaledX) {
+        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_VERTICAL || !isSplitPresented())
+            return fullScaledX;
+        return active.slot == 0 ? fullScaledX : fullScaledX - mc().getWindow().getGuiScaledWidth() / 2.0;
+    }
+
+    /** Maps a full-window scaled mouse Y into the focused pane's local GUI Y. */
+    public double paneScaledY(double fullScaledY) {
+        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_HORIZONTAL || !isSplitPresented())
+            return fullScaledY;
+        return active.slot == 0 ? fullScaledY : fullScaledY - mc().getWindow().getGuiScaledHeight() / 2.0;
+    }
+
     private int occupiedCount() {
         int count = 0;
         for (ClientSession session : slots) if (session != null && session.occupied) count++;
         return count;
     }
 
+    public boolean isSplitPresented() {
+        if (!enabled || layoutMode == LayoutMode.TABS || slots[0] == null || slots[1] == null) return false;
+        return (slots[0].occupied || slots[0] == active) && (slots[1].occupied || slots[1] == active);
+    }
+
     public RenderTarget presentationTarget(RenderTarget focusedTarget) {
-        if (!enabled || layoutMode == LayoutMode.TABS || sessionCount() != 2) return focusedTarget;
+        if (!isSplitPresented()) return focusedTarget;
         int width = mc().getWindow().getWidth();
         int height = mc().getWindow().getHeight();
         if (compositeTarget == null) compositeTarget = new MainTarget(width, height);
@@ -393,9 +434,15 @@ public final class SessionManager {
             if (!(source.getColorTexture() instanceof GlTexture texture)) return focusedTarget;
             int x = layoutMode == LayoutMode.SPLIT_VERTICAL ? offset : 0;
             int y = layoutMode == LayoutMode.SPLIT_HORIZONTAL ? offset : 0;
+            int paneWidth = layoutMode == LayoutMode.SPLIT_VERTICAL
+                    ? (session.slot == 0 ? width / 2 : width - width / 2) : width;
+            int paneHeight = layoutMode == LayoutMode.SPLIT_HORIZONTAL
+                    ? (session.slot == 0 ? height / 2 : height - height / 2) : height;
+            int copyWidth = Math.min(source.width, paneWidth);
+            int copyHeight = Math.min(source.height, paneHeight);
             GL43C.glCopyImageSubData(texture.glId(), GL43C.GL_TEXTURE_2D, 0, 0, 0, 0,
-                destination.glId(), GL43C.GL_TEXTURE_2D, 0, x, y, 0, source.width, source.height, 1);
-            offset += layoutMode == LayoutMode.SPLIT_VERTICAL ? source.width : source.height;
+                destination.glId(), GL43C.GL_TEXTURE_2D, 0, x, y, 0, copyWidth, copyHeight, 1);
+            offset += layoutMode == LayoutMode.SPLIT_VERTICAL ? paneWidth : paneHeight;
         }
         return compositeTarget;
     }
@@ -413,7 +460,7 @@ public final class SessionManager {
     }
 
     private void updateVisibility() {
-        boolean split = layoutMode != LayoutMode.TABS && sessionCount() == 2;
+        boolean split = isSplitPresented();
         for (ClientSession session : slots) {
             if (session == null) continue;
             if (session.visible != split) session.lastRender = 0;

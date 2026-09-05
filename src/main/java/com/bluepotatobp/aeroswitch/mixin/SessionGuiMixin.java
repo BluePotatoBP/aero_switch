@@ -8,11 +8,24 @@ import net.minecraft.client.MouseHandler;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.sounds.SoundManager;
 import com.mojang.blaze3d.platform.TextInputManager;
+import com.mojang.blaze3d.platform.Window;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 @Mixin(Gui.class)
 public abstract class SessionGuiMixin {
+    @WrapOperation(method = "setScreen", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getGuiScaledWidth()I"))
+    private int aero$screenWidth(Window window, Operation<Integer> original) {
+        return SessionManager.get().renderGuiWidth(window.getWidth(), window.getGuiScale());
+    }
+
+    @WrapOperation(method = "setScreen", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getGuiScaledHeight()I"))
+    private int aero$screenHeight(Window window, Operation<Integer> original) {
+        return SessionManager.get().renderGuiHeight(window.getHeight(), window.getGuiScale());
+    }
+
     @WrapOperation(method = "setScreen", at = @At(value = "INVOKE",
             target = "Lcom/mojang/blaze3d/platform/TextInputManager;stopTextInput()V"))
     private void aero$textInput(TextInputManager input, Operation<Void> original) {

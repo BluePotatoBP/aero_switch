@@ -4,6 +4,7 @@ import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionParticleAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionCloudAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionHudAccessor;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.Hud;
@@ -50,6 +51,7 @@ final class ClientSession {
     LevelExtractor extractor;
     ParticleEngine particles;
     Gui gui;
+    CameraType cameraType;
 
     ClientSession(int slot) {
         this.slot = slot;
@@ -76,6 +78,7 @@ final class ClientSession {
         extractor = mc.levelExtractor;
         particles = mc.particleEngine;
         gui = mc.gui;
+        cameraType = mc.options.getCameraType();
         if (level != null || server != null || pending != null) occupied = true;
     }
 
@@ -98,14 +101,17 @@ final class ClientSession {
         access.aero$extractor(extractor);
         access.aero$particles(particles);
         access.aero$gui(gui);
+        if (cameraType != null) mc.options.setCameraType(cameraType);
     }
 
     void createEngines(Minecraft mc) {
         reporting = mc.getReportingContext();
+        cameraType = mc.options.getCameraType();
         renderer = new GameRenderer(mc,
                 new ItemInHandRenderer(mc, mc.getEntityRenderDispatcher(), mc.getItemModelResolver()), mc.getModelManager());
         renderer.gameRenderState().windowRenderState.width = mc.getWindow().getWidth();
         renderer.gameRenderState().windowRenderState.height = mc.getWindow().getHeight();
+        renderer.gameRenderState().framerateLimit = mc.getFramerateLimitTracker().getFramerateLimit();
         levelRenderer = new LevelRenderer(mc.getEntityRenderDispatcher(), mc.getBlockEntityRenderDispatcher(),
                 mc.getModelManager(), mc.getTextureManager(), mc.getAtlasManager(), mc.getShaderManager(),
                 renderer, mc.getWindow().getWidth(), mc.getWindow().getHeight());
