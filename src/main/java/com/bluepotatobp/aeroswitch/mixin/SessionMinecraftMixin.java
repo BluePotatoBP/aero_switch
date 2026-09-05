@@ -1,8 +1,11 @@
 package com.bluepotatobp.aeroswitch.mixin;
 
 import com.bluepotatobp.aeroswitch.session.SessionManager;
+import com.bluepotatobp.aeroswitch.ui.ImGuiSessionOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.GameRenderer;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import net.minecraft.server.WorldStem;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.world.level.gamerules.GameRules;
@@ -37,6 +40,7 @@ public abstract class SessionMinecraftMixin {
 
     @Inject(method = "close", at = @At("HEAD"))
     private void aero$shutdown(CallbackInfo ci) {
+        ImGuiSessionOverlay.shutdown();
         SessionManager.get().shutdown();
     }
     @Inject(method = "tick", at = @At("TAIL"))
@@ -47,6 +51,25 @@ public abstract class SessionMinecraftMixin {
     @Inject(method = "runTick", at = @At("TAIL"))
     private void aero$independentTickClock(boolean advanceGameTime, CallbackInfo ci) {
         SessionManager.get().tickBackground();
+    }
+
+    @Inject(method = "runTick", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/Minecraft;renderFrame(Z)V", shift = At.Shift.BEFORE))
+    private void aero$backgroundRender(boolean advanceGameTime, CallbackInfo ci) {
+        SessionManager.get().renderBackground();
+    }
+
+    @Redirect(method = "renderFrame", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/renderer/GameRenderer;mainRenderTarget()Lcom/mojang/blaze3d/pipeline/RenderTarget;",
+            ordinal = 0))
+    private RenderTarget aero$splitPresentation(GameRenderer renderer) {
+        return SessionManager.get().presentationTarget(renderer.mainRenderTarget());
+    }
+
+    @Inject(method = "renderFrame", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/systems/GpuSurface;present()V", shift = At.Shift.BEFORE))
+    private void aero$renderSessionOverlay(boolean advanceGameTime, CallbackInfo ci) {
+        ImGuiSessionOverlay.render();
     }
 
     @Inject(method = "doWorldLoad", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;runAllTasks()V"))

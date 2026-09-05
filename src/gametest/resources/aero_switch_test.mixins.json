@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.bluepotatobp.aeroswitch.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "TestMouseAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

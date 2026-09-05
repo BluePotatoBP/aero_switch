@@ -36,6 +36,10 @@ final class ClientSession {
     volatile boolean occupied;
     int generation;
     boolean keepRunning;
+    boolean visible;
+    int inactiveFps = 5;
+    long lastRender;
+    long renderedFrames;
     int delay;
     int missTime;
     Entity crosshair;

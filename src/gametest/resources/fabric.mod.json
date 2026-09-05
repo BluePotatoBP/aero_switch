@@ -13,6 +13,7 @@
       "com.bluepotatobp.aeroswitch.HarnessClientTest"
     ]
   },
+  "mixins": ["aero_switch_test.mixins.json"],
   "depends": {
     "aero_switch": "*"
   }

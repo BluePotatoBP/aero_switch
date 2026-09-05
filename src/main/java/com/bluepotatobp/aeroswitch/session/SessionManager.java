@@ -1,6 +1,11 @@
 package com.bluepotatobp.aeroswitch.session;
 
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
+import com.mojang.blaze3d.pipeline.MainTarget;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.opengl.GlTexture;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -14,6 +19,7 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.util.Util;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.LevelStorageSource;
 
@@ -21,9 +27,16 @@ import java.util.Map;
 import java.util.Collections;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import org.lwjgl.opengl.GL43C;
 
 /** Experimental, client-thread-confined two-session scheduler. */
 public final class SessionManager {
+    public enum LayoutMode {
+        TABS,
+        SPLIT_VERTICAL,
+        SPLIT_HORIZONTAL
+    }
+
     private static final SessionManager INSTANCE = new SessionManager();
     private final boolean enabled = Boolean.getBoolean("aeroSwitch.experimental");
     private final ClientSession[] slots = new ClientSession[2];
@@ -40,6 +53,8 @@ public final class SessionManager {
     private boolean servicingWait;
     private boolean closing;
     private long lastService;
+    private LayoutMode layoutMode = LayoutMode.TABS;
+    private MainTarget compositeTarget;
 
     public static SessionManager get() { return INSTANCE; }
     public boolean isEnabled() { return enabled; }
@@ -88,6 +103,12 @@ public final class SessionManager {
         checkThread();
         adopt();
         return require(slot).keepRunning;
+    }
+
+    public boolean isLocalSession(int slot) {
+        checkThread();
+        adopt();
+        return require(slot).server != null;
     }
 
     public void prepareNewSession() {
@@ -143,11 +164,63 @@ public final class SessionManager {
         publishPause();
     }
 
+    public int inactiveFps(int slot) {
+        checkThread();
+        adopt();
+        return require(slot).inactiveFps;
+    }
+
+    public void setInactiveFps(int slot, int value) {
+        checkThread();
+        adopt();
+        require(slot).inactiveFps = Math.clamp(value, 1, 60);
+    }
+
+    public long renderedFrames(int slot) {
+        checkThread();
+        adopt();
+        return require(slot).renderedFrames;
+    }
+
+    public LayoutMode layoutMode() {
+        return layoutMode;
+    }
+
+    public void setLayoutMode(LayoutMode value) {
+        checkThread();
+        if (!enabled) return;
+        adopt();
+        layoutMode = value;
+        updateVisibility();
+    }
+
+    public boolean focusPane(double x, double y, int width, int height) {
+        checkThread();
+        if (!enabled || layoutMode == LayoutMode.TABS || occupiedCount() != 2) return false;
+        int target = layoutMode == LayoutMode.SPLIT_VERTICAL
+                ? (x < width / 2.0 ? 0 : 1)
+                : (y < height / 2.0 ? 0 : 1);
+        if (target == focused) return false;
+        focus(target);
+        return true;
+    }
+
     public void withSession(int slot, Runnable action) {
         checkThread();
         if (!enabled) throw new IllegalStateException("Session engine disabled");
         adopt();
         inContext(require(slot), action);
+    }
+
+    public void handleInput(Runnable action) {
+        if (!enabled || active == null || slots[focused] == null || !slots[focused].occupied) {
+            action.run();
+            return;
+        }
+        checkThread();
+        ClientSession inputOwner = require(focused);
+        if (active == inputOwner) action.run();
+        else inContext(inputOwner, action);
     }
 
     private void inContext(ClientSession target, Runnable action) {
@@ -263,6 +336,105 @@ public final class SessionManager {
         }
     }
 
+    public void renderBackground() {
+        if (!enabled || servicing) return;
+        adopt();
+        updateVisibility();
+        long now = Util.getNanos();
+        for (ClientSession session : slots) {
+            if (session == null || session == active || !session.occupied || !session.visible) continue;
+            long interval = 1_000_000_000L / session.inactiveFps;
+            if (now - session.lastRender < interval) continue;
+            session.lastRender = now;
+            inContext(session, this::renderActiveOffscreen);
+            session.renderedFrames++;
+        }
+    }
+
+    public int renderWidth(int physicalWidth) {
+        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_VERTICAL || occupiedCount() != 2)
+            return physicalWidth;
+        int firstWidth = physicalWidth / 2;
+        return active.slot == 0 ? firstWidth : physicalWidth - firstWidth;
+    }
+
+    public int renderHeight(int physicalHeight) {
+        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_HORIZONTAL || occupiedCount() != 2)
+            return physicalHeight;
+        int firstHeight = physicalHeight / 2;
+        return active.slot == 0 ? firstHeight : physicalHeight - firstHeight;
+    }
+
+    public int renderGuiWidth(int physicalWidth, int guiScale) {
+        return (int) Math.ceil(renderWidth(physicalWidth) / (double) guiScale);
+    }
+
+    public int renderGuiHeight(int physicalHeight, int guiScale) {
+        return (int) Math.ceil(renderHeight(physicalHeight) / (double) guiScale);
+    }
+
+    private int occupiedCount() {
+        int count = 0;
+        for (ClientSession session : slots) if (session != null && session.occupied) count++;
+        return count;
+    }
+
+    public RenderTarget presentationTarget(RenderTarget focusedTarget) {
+        if (!enabled || layoutMode == LayoutMode.TABS || sessionCount() != 2) return focusedTarget;
+        int width = mc().getWindow().getWidth();
+        int height = mc().getWindow().getHeight();
+        if (compositeTarget == null) compositeTarget = new MainTarget(width, height);
+        else if (compositeTarget.width != width || compositeTarget.height != height) compositeTarget.resize(width, height);
+        RenderSystem.getDevice().createCommandEncoder().submit();
+        if (!(compositeTarget.getColorTexture() instanceof GlTexture destination)) return focusedTarget;
+        int offset = 0;
+        for (ClientSession session : slots) {
+            RenderTarget source = session.renderer.mainRenderTarget();
+            if (!(source.getColorTexture() instanceof GlTexture texture)) return focusedTarget;
+            int x = layoutMode == LayoutMode.SPLIT_VERTICAL ? offset : 0;
+            int y = layoutMode == LayoutMode.SPLIT_HORIZONTAL ? offset : 0;
+            GL43C.glCopyImageSubData(texture.glId(), GL43C.GL_TEXTURE_2D, 0, 0, 0, 0,
+                destination.glId(), GL43C.GL_TEXTURE_2D, 0, x, y, 0, source.width, source.height, 1);
+            offset += layoutMode == LayoutMode.SPLIT_VERTICAL ? source.width : source.height;
+        }
+        return compositeTarget;
+    }
+
+    public RenderTarget sessionRenderTarget(int slot) {
+        checkThread();
+        adopt();
+        return require(slot).renderer.mainRenderTarget();
+    }
+
+    public Entity sessionCameraEntity(int slot) {
+        checkThread();
+        adopt();
+        return require(slot).renderer.mainCamera().entity();
+    }
+
+    private void updateVisibility() {
+        boolean split = layoutMode != LayoutMode.TABS && sessionCount() == 2;
+        for (ClientSession session : slots) {
+            if (session == null) continue;
+            if (session.visible != split) session.lastRender = 0;
+            session.visible = split && session.occupied;
+        }
+    }
+
+    private void renderActiveOffscreen() {
+        Minecraft client = mc();
+        DeltaTracker deltaTracker = client.getDeltaTracker();
+        client.gui.update();
+        if (client.isGameLoadFinished() && client.level != null) client.level.update();
+        client.gameRenderer.update(deltaTracker);
+        client.gameRenderer.extract(deltaTracker, true);
+        RenderSystem.executePendingTasks();
+        client.gameRenderer.render(deltaTracker, true);
+        RenderSystem.getDevice().createCommandEncoder().submit();
+        RenderSystem.getDynamicUniforms().reset();
+        client.levelRenderer.endFrame();
+    }
+
     private void tickSession(ClientSession session) {
         Minecraft mc = mc();
         boolean paused = shouldPause(session);
@@ -344,6 +516,10 @@ public final class SessionManager {
                 session.levelRenderer.close();
                 session.renderer.close();
             }
+        }
+        if (compositeTarget != null) {
+            compositeTarget.destroyBuffers();
+            compositeTarget = null;
         }
     }
     private boolean shouldPause(ClientSession session) {

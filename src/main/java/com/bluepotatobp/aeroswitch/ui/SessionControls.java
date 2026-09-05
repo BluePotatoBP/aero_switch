@@ -20,7 +20,7 @@ public final class SessionControls {
                 "key.aero_switch.next", InputConstants.Type.KEYSYM, InputConstants.KEY_F7, category));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (managerKey.consumeClick()) {
-                client.gui.setScreen(new SessionScreen());
+                client.gui.setScreen(client.gui.screen() instanceof SessionScreen ? null : new SessionScreen());
             }
             while (switchKey.consumeClick()) {
                 SessionManager manager = SessionManager.get();

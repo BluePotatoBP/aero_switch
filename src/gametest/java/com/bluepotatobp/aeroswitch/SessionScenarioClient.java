@@ -1,17 +1,26 @@
 package com.bluepotatobp.aeroswitch;
 
 import com.bluepotatobp.aeroswitch.diagnostics.ClientStateSnapshot;
+import com.bluepotatobp.aeroswitch.mixin.TestMouseAccessor;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
+import com.mojang.blaze3d.platform.NativeImage;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
 
 /** Normal-client scenario: Fabric's game-test scheduler supports only one server thread. */
 public final class SessionScenarioClient implements ClientModInitializer {
@@ -28,6 +37,14 @@ public final class SessionScenarioClient implements ClientModInitializer {
     private LocalPlayer playerB;
     private CompletableFuture<ServerSample> sampleA;
     private CompletableFuture<ServerSample> sampleB;
+    private CompletableFuture<SplitSample> splitCapture;
+    private Vec3 movementStartA;
+    private Vec3 movementStartB;
+    private float movementPitchA;
+    private float movementPitchB;
+    private float movementYawA;
+    private float movementYawB;
+    private int movementTicks;
     private long pausedTime;
     private long runningTime;
     private boolean executing;
@@ -80,10 +97,65 @@ public final class SessionScenarioClient implements ClientModInitializer {
                     require(playerA.connection != playerB.connection, "Listeners must be independent");
                     require(playerA.connection.getConnection().isConnected(), "Opening B must not disconnect A");
                     require(sessions.focusedSlot() == 1, "New session B should be focused");
+                    sessions.setLayoutMode(SessionManager.LayoutMode.SPLIT_VERTICAL);
+                    require(sessions.sessionCameraEntity(0) == playerA && sessions.sessionCameraEntity(1) == playerB,
+                            "Each renderer camera must remain attached to its own player");
+                    require(sessions.focusPane(0, 0, 854, 480) && sessions.focusedSlot() == 0,
+                            "Left pane must focus session A");
+                    require(sessions.focusPane(853, 0, 854, 480) && sessions.focusedSlot() == 1,
+                            "Right pane must focus session B");
+                    sessions.focus(0);
+                    movementStartA = playerA.position();
+                    movementStartB = playerB.position();
+                    movementPitchB = playerB.getXRot();
+                    movementYawB = playerB.getYRot();
+                    movementPitchA = playerA.getXRot();
+                    movementYawA = playerA.getYRot();
+                    require(client.mouseHandler.isMouseGrabbed(), "Mouse must be grabbed for the look test");
+                    client.options.keyUp.setDown(true);
+                    transition(Phase.MOVEMENT_ASSERT);
+                }
+                case MOVEMENT_ASSERT -> {
+                    if (movementTicks++ < 12) {
+                        TestMouseAccessor mouse = (TestMouseAccessor) client.mouseHandler;
+                        mouse.aero$accumulatedDX(30.0);
+                        mouse.aero$accumulatedDY(-30.0);
+                        sessions.withSession(1, client.mouseHandler::handleAccumulatedMovement);
+                        require(Math.abs(playerB.getXRot() - movementPitchB) < 0.01F
+                                        && Math.abs(playerB.getYRot() - movementYawB) < 0.01F,
+                                "Continuous mouse input leaked into the inactive player");
+                        return;
+                    }
+                        client.options.keyUp.setDown(false);
+                    require(Math.abs(playerA.getXRot() - movementPitchA) > 30.0F,
+                            "Continuous mouse input did not noticeably tilt the focused camera");
+                    require(Math.abs(playerA.getYRot() - movementYawA) > 30.0F,
+                            "Continuous mouse input did not noticeably turn the focused camera");
+                    require(Math.abs(playerB.getXRot() - movementPitchB) < 0.01F
+                                    && Math.abs(playerB.getYRot() - movementYawB) < 0.01F,
+                            "Mouse movement leaked into the inactive player during background frames");
+                    require(horizontalDistance(playerA.position(), movementStartA) > 0.05,
+                            "Focused player did not respond to forward input");
+                    require(horizontalDistance(playerB.position(), movementStartB) < 0.001,
+                            "Forward input leaked into the inactive player");
+                    require(sessions.sessionCameraEntity(0) == playerA && sessions.sessionCameraEntity(1) == playerB,
+                            "A renderer camera crossed session ownership during movement");
+                    sessions.focus(1);
                     transition(Phase.PAUSE_SAMPLE);
-                    waitTicks = 30;
+                    waitTicks = 15;
                 }
                 case PAUSE_SAMPLE -> {
+                    require(sessions.renderedFrames(0) > 0, "Visible inactive session did not render offscreen");
+                    if (splitCapture == null) {
+                        splitCapture = captureSplit(client, sessions);
+                        return;
+                    }
+                    if (!splitCapture.isDone()) return;
+                    SplitSample split = splitCapture.join();
+                    require(split.leftNonBlack() > split.halfPixels() / 100,
+                            "Left split pane is blank in aero-split.png");
+                    require(split.rightNonBlack() > split.halfPixels() / 100,
+                            "Right split pane is blank in aero-split.png");
                     sampleA = sample(serverA);
                     sampleB = sample(serverB);
                     transition(Phase.PAUSE_READ);
@@ -181,9 +253,72 @@ public final class SessionScenarioClient implements ClientModInitializer {
                 server.overworld().getBlockState(MARKER).is(Blocks.EMERALD_BLOCK)));
     }
 
+    private static CompletableFuture<SplitSample> captureSplit(Minecraft client, SessionManager sessions) {
+        int index = nextCaptureIndex(client.gameDirectory.toPath());
+        CompletableFuture<ImageSample> left = captureImage(client, index + "-aero-slot0.png", sessions.sessionRenderTarget(0));
+        CompletableFuture<ImageSample> right = captureImage(client, index + "-aero-slot1.png", sessions.sessionRenderTarget(1));
+        CompletableFuture<ImageSample> composite = captureImage(client, index + "-aero-split.png",
+                sessions.presentationTarget(client.gameRenderer.mainRenderTarget()));
+        return CompletableFuture.allOf(left, right, composite).thenApply(ignored -> {
+            ImageSample combined = composite.join();
+            require(left.join().nonBlack() > left.join().pixels() / 100, "Slot 0 render target is blank");
+            require(right.join().nonBlack() > right.join().pixels() / 100, "Slot 1 render target is blank");
+            return new SplitSample(combined.leftNonBlack(), combined.rightNonBlack(), combined.pixels() / 2);
+        });
+    }
+
+    private static int nextCaptureIndex(Path directory) {
+        int highest = 0;
+        try (DirectoryStream<Path> images = Files.newDirectoryStream(directory, "*-aero-split.png")) {
+            for (Path image : images) {
+                String name = image.getFileName().toString();
+                String prefix = name.substring(0, name.length() - "-aero-split.png".length());
+                try {
+                    highest = Math.max(highest, Integer.parseInt(prefix));
+                } catch (NumberFormatException ignored) {
+                    // Ignore similarly named artifacts without a numeric run index.
+                }
+            }
+        } catch (IOException exception) {
+            throw new CompletionException(exception);
+        }
+        return highest + 1;
+    }
+
+    private static CompletableFuture<ImageSample> captureImage(Minecraft client, String name,
+                                                                com.mojang.blaze3d.pipeline.RenderTarget target) {
+        CompletableFuture<ImageSample> result = new CompletableFuture<>();
+        Screenshot.takeScreenshot(target, image -> {
+            try (NativeImage screenshot = image) {
+                screenshot.writeToFile(client.gameDirectory.toPath().resolve(name));
+                int middle = screenshot.getWidth() / 2;
+                long left = 0;
+                long right = 0;
+                for (int y = 0; y < screenshot.getHeight(); y++) {
+                    for (int x = 0; x < screenshot.getWidth(); x++) {
+                        if ((screenshot.getPixel(x, y) & 0x00FFFFFF) == 0) continue;
+                        if (x < middle) left++;
+                        else right++;
+                    }
+                }
+                result.complete(new ImageSample(left + right, left, right,
+                        (long) screenshot.getWidth() * screenshot.getHeight()));
+            } catch (IOException exception) {
+                result.completeExceptionally(new CompletionException(exception));
+            }
+        });
+        return result;
+    }
+
     private static boolean playing(Minecraft client) {
         return client.level != null && client.player != null && client.gui.screen() == null
                 && client.getConnection() != null && client.getConnection().getConnection().isConnected();
+    }
+
+    private static double horizontalDistance(Vec3 current, Vec3 start) {
+        double x = current.x() - start.x();
+        double z = current.z() - start.z();
+        return Math.sqrt(x * x + z * z);
     }
 
     private void transition(Phase next) {
@@ -204,8 +339,12 @@ public final class SessionScenarioClient implements ClientModInitializer {
 
     private record ServerSample(boolean paused, long time, boolean marker) { }
 
+    private record SplitSample(long leftNonBlack, long rightNonBlack, long halfPixels) { }
+
+    private record ImageSample(long nonBlack, long leftNonBlack, long rightNonBlack, long pixels) { }
+
     private enum Phase {
-        TITLE, FIRST, SECOND, PAUSE_SAMPLE, PAUSE_READ, PAUSE_COMPARE, PAUSE_ASSERT,
+        TITLE, FIRST, SECOND, MOVEMENT_ASSERT, PAUSE_SAMPLE, PAUSE_READ, PAUSE_COMPARE, PAUSE_ASSERT,
         RUN_SAMPLE, RUN_ASSERT, SWITCHING, CLOSED_FIRST, CLOSED_BOTH, REOPEN, PERSISTED, FINISH, DONE
     }
 }
