@@ -1,0 +1,29 @@
+{
+  "required": true,
+  "package": "com.bluepotatobp.aeroswitch.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "MinecraftLifecycleMixin",
+    "MinecraftStateAccessor",
+    "ClientLevelStateAccessor",
+    "ConnectionLifecycleMixin",
+    "IntegratedServerDiagnosticsMixin",
+    "PacketProcessorMixin",
+    "SessionMinecraftAccessor",
+    "SessionParticleAccessor",
+    "SessionCloudAccessor",
+    "SessionHudAccessor",
+    "SessionMinecraftMixin",
+    "SessionPacketMixin",
+    "SessionConnectionMixin",
+    "SessionConnectMixin",
+    "SessionLoadTrackerMixin",
+    "SessionServerMixin",
+    "SessionDedicatedServerMixin",
+    "SessionGuiMixin",
+    "SessionTaskMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

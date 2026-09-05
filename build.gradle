@@ -1,0 +1,137 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.17.20'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven { url = 'https://api.modrinth.com/maven' }
+        }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand version: project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.encoding = 'UTF-8'
+}
+
+java {
+    withSourcesJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+loom {
+    runs {
+        client {
+            vmArg "-DaeroSwitch.diagnostics=${providers.gradleProperty('aeroDiagnostics').getOrElse('true')}"
+            vmArg "-DaeroSwitch.experimental=${providers.gradleProperty('aeroExperimental').getOrElse('false')}"
+        }
+    }
+}
+
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = 'aero_switch_test'
+        enableGameTests = false
+        enableClientGameTests = true
+    }
+}
+
+loom.runs.clientGameTest {
+    vmArg "-DaeroSwitch.diagnostics=${providers.gradleProperty('aeroDiagnostics').getOrElse('true')}"
+}
+
+if (providers.gradleProperty('withSodium').getOrElse('false').toBoolean()) {
+    dependencies {
+        gametestRuntimeOnly 'maven.modrinth:sodium:A0IzDzaH'
+    }
+}
+
+tasks.register('extractResearchSources', Sync) {
+    dependsOn tasks.named('genSources')
+    from({
+        def sources = fileTree('.gradle/loom-cache/minecraftMaven') {
+            include "**/${project.minecraft_version}/*-sources.jar"
+        }.files
+        if (sources.size() != 1) {
+            throw new GradleException("Expected exactly one generated Minecraft source archive, found ${sources.size()}")
+        }
+        zipTree(sources.first())
+    })
+    include 'net/minecraft/client/Minecraft.java'
+    include 'net/minecraft/client/gui/Gui.java'
+    include 'net/minecraft/client/gui/Hud.java'
+    include 'net/minecraft/client/gui/screens/ConnectScreen.java'
+    include 'net/minecraft/client/gui/screens/worldselection/WorldOpenFlows.java'
+    include 'net/minecraft/client/multiplayer/*.java'
+    include 'net/minecraft/client/player/LocalPlayer.java'
+    include 'net/minecraft/client/server/IntegratedServer.java'
+    include 'net/minecraft/client/renderer/GameRenderer.java'
+    include 'net/minecraft/client/renderer/LevelRenderer.java'
+    include 'net/minecraft/client/renderer/extract/LevelExtractor.java'
+    include 'net/minecraft/client/particle/ParticleEngine.java'
+    include 'net/minecraft/network/Connection.java'
+    include 'net/minecraft/network/PacketProcessor.java'
+    include 'net/minecraft/network/protocol/PacketUtils.java'
+    include 'net/minecraft/server/MinecraftServer.java'
+    into layout.buildDirectory.dir('research/minecraft')
+}
+
+tasks.register('prepareSessionTestWorlds', Sync) {
+    dependsOn tasks.named('runClientGameTest')
+    ['AeroA', 'AeroB', 'TcpA', 'TcpB'].each { name ->
+        from(layout.buildDirectory.dir('run/clientGameTest/saves/New World')) {
+            into name
+            exclude 'session.lock'
+        }
+    }
+    into layout.buildDirectory.dir('run/sessionTest/saves')
+}
+
+loom.runs {
+    sessionTest {
+        client()
+        name = 'Aero Switch Session Scenario'
+        source sourceSets.gametest
+        runDir 'build/run/sessionTest'
+        vmArg '-DaeroSwitch.experimental=true'
+        vmArg '-DaeroSwitch.diagnostics=true'
+        vmArg '-DaeroSwitch.sessionTest=true'
+        vmArg "-DaeroSwitch.scenario=${providers.gradleProperty('aeroScenario').getOrElse('local-local')}"
+    }
+}
+
+tasks.register('prepareSessionTestOptions', Copy) {
+    dependsOn tasks.named('runClientGameTest')
+    from(layout.buildDirectory.file('run/clientGameTest/options.txt'))
+    into layout.buildDirectory.dir('run/sessionTest')
+}
+
+tasks.named('runSessionTest') {
+    dependsOn tasks.named('prepareSessionTestWorlds'), tasks.named('prepareSessionTestOptions')
+}

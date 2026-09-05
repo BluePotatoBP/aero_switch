@@ -1,0 +1,14 @@
+{
+  "key.category.aero_switch.sessions": "Aero Switch",
+  "key.aero_switch.manager": "Manage world sessions",
+  "key.aero_switch.next": "Switch world session",
+  "screen.aero_switch.title": "Aero Switch",
+  "screen.aero_switch.experimental": "Experimental two-session engine",
+  "screen.aero_switch.remote_notice": "Remote servers always keep running.",
+  "screen.aero_switch.focus": "Focus session %s",
+  "screen.aero_switch.running": "Keep running",
+  "screen.aero_switch.pause_inactive": "Pause when inactive",
+  "screen.aero_switch.close": "Save / close",
+  "screen.aero_switch.add_local": "Open local world",
+  "screen.aero_switch.add_remote": "Join server"
+}
