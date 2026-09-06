@@ -13,6 +13,7 @@
     "SessionParticleAccessor",
     "SessionCloudAccessor",
     "SessionHudAccessor",
+    "CreativeModeInventoryScreenAccessor",
     "SessionMinecraftMixin",
     "SessionCameraMixin",
     "SessionGameRendererMixin",

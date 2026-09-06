@@ -1,6 +1,7 @@
 package com.bluepotatobp.aeroswitch;
 
 import com.bluepotatobp.aeroswitch.diagnostics.ClientStateSnapshot;
+import com.bluepotatobp.aeroswitch.mixin.CreativeModeInventoryScreenAccessor;
 import com.bluepotatobp.aeroswitch.mixin.TestMouseAccessor;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
 import com.bluepotatobp.aeroswitch.ui.SessionScreen;
@@ -17,10 +18,14 @@ import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import org.lwjgl.opengl.GL11C;
@@ -51,13 +56,24 @@ public final class SessionScenarioClient implements ClientModInitializer {
     private long pausedTime;
     private long runningTime;
     private boolean executing;
+    private CreativePhase cPhase = CreativePhase.TITLE;
+    private long cDeadline;
+    private int cWait;
+    private int cSwitches;
+    private CreativeModeTab tabA;
+    private CreativeModeTab tabB;
+    private CreativeModeTab inventoryTab;
 
     @Override
     public void onInitializeClient() {
-        if (Boolean.getBoolean("aeroSwitch.sessionTest")
-                && System.getProperty("aeroSwitch.scenario", "local-local").equals("local-local")) {
+        if (!Boolean.getBoolean("aeroSwitch.sessionTest")) return;
+        String scenario = System.getProperty("aeroSwitch.scenario", "local-local");
+        if (scenario.equals("local-local")) {
             deadline = System.nanoTime() + 120_000_000_000L;
             ClientTickEvents.END_CLIENT_TICK.register(this::tick);
+        } else if (scenario.equals("creative-tabs")) {
+            cDeadline = System.nanoTime() + 120_000_000_000L;
+            ClientTickEvents.END_CLIENT_TICK.register(this::tickCreativeTabs);
         }
     }
 
@@ -273,6 +289,161 @@ public final class SessionScenarioClient implements ClientModInitializer {
         }
     }
 
+    private void tickCreativeTabs(Minecraft client) {
+        if (executing || cPhase == CreativePhase.DONE) return;
+        executing = true;
+        try {
+            require(System.nanoTime() < cDeadline, "Creative tab scenario timed out in phase " + cPhase);
+            if (cWait > 0) {
+                cWait--;
+                return;
+            }
+            SessionManager sessions = SessionManager.get();
+            switch (cPhase) {
+                case TITLE -> {
+                    if (!(client.gui.screen() instanceof TitleScreen)) return;
+                    require(sessions.isEnabled(), "Experimental engine must be enabled");
+                    transitionCreative(CreativePhase.FIRST);
+                    open(client, "AeroA");
+                }
+                case FIRST -> {
+                    if (!playing(client)) return;
+                    client.player.getAbilities().instabuild = true;
+                    sessions.setLayoutMode(SessionManager.LayoutMode.SPLIT_VERTICAL);
+                    sessions.prepareNewSession();
+                    transitionCreative(CreativePhase.SECOND);
+                    open(client, "AeroB");
+                }
+                case SECOND -> {
+                    if (!playing(client)) return;
+                    require(sessions.sessionCount() == 2, "Both creative sessions must be retained");
+                    client.player.getAbilities().instabuild = true;
+                    sessions.focus(0);
+                    // Opening a creative screen builds vanilla's tab contents, so the tabs
+                    // must be resolved afterwards (getDisplayItems() is empty before then).
+                    openCreativeScreen(client, sessions);
+                    tabA = categoryTab(0);
+                    tabB = categoryTab(1);
+                    inventoryTab = inventoryTab();
+                    require(tabA != null && tabB != null && tabA != tabB && inventoryTab != null,
+                            "Two distinct category tabs and the inventory tab must exist");
+                    ((CreativeModeInventoryScreenAccessor) client.gui.screen()).aero$selectTab(tabA);
+                    transitionCreative(CreativePhase.OPEN_B);
+                }
+                case OPEN_B -> {
+                    sessions.focus(1);
+                    openCreativeScreen(client, sessions);
+                    ((CreativeModeInventoryScreenAccessor) client.gui.screen()).aero$selectTab(tabB);
+                    // Two sessions on DIFFERENT category tabs: tickBackground + focus must
+                    // keep each screen's item grid on its own tab.
+                    cWait = 20;
+                    transitionCreative(CreativePhase.CADENCE);
+                }
+                case CADENCE -> {
+                    sessions.focus(0);
+                    assertTabShown(sessions, 0, tabA);
+                    assertGridOwnTab(sessions);
+                    sessions.focus(1);
+                    assertTabShown(sessions, 1, tabB);
+                    assertGridOwnTab(sessions);
+                    if (++cSwitches < 4) {
+                        cWait = 5;
+                        return;
+                    }
+                    // Scroll preservation: a non-zero scroll must survive a focus
+                    // round-trip (install() must not snap it back to the top).
+                    sessions.focus(0);
+                    ((CreativeModeInventoryScreenAccessor) client.gui.screen()).aero$setScrollOffs(0.5F);
+                    sessions.focus(1);
+                    sessions.focus(0);
+                    require(((CreativeModeInventoryScreenAccessor) sessions.focusedScreen()).aero$getScrollOffs() == 0.5F,
+                            "Focus switches must not reset the creative inventory scroll");
+                    ((CreativeModeInventoryScreenAccessor) sessions.focusedScreen()).aero$setScrollOffs(0.0F);
+                    // Put the focused session on the Inventory tab: this is the state that
+                    // used to NPE when the other (category-tab) session was installed.
+                    sessions.focus(1);
+                    ((CreativeModeInventoryScreenAccessor) client.gui.screen()).aero$selectTab(inventoryTab);
+                    cWait = 20;
+                    transitionCreative(CreativePhase.CRASH);
+                }
+                case CRASH -> {
+                    // Session 1 is on the Inventory tab; installing session 0 must neither
+                    // crash nor leave its grid showing another session's items.
+                    sessions.focus(0);
+                    assertTabShown(sessions, 0, tabA);
+                    assertGridOwnTab(sessions);
+                    sessions.focus(1);
+                    assertTabShown(sessions, 1, inventoryTab);
+                    if (++cSwitches < 8) {
+                        cWait = 5;
+                        return;
+                    }
+                    transitionCreative(CreativePhase.FINISH);
+                }
+                case FINISH -> {
+                    sessions.close(0);
+                    sessions.close(1);
+                    require(sessions.sessionCount() == 0, "A creative session leaked after the scenario");
+                    AeroSwitchClient.LOGGER.info("AERO_SESSION_TEST_PASSED creative-tabs pid={}",
+                            ProcessHandle.current().pid());
+                    cPhase = CreativePhase.DONE;
+                    client.stop();
+                }
+                case DONE -> { }
+            }
+        } finally {
+            executing = false;
+        }
+    }
+
+    private static void openCreativeScreen(Minecraft client, SessionManager sessions) {
+        LocalPlayer player = client.player;
+        player.getAbilities().instabuild = true;
+        sessions.setFocusedScreen(new CreativeModeInventoryScreen(player, player.connection.enabledFeatures(), false));
+    }
+
+    private static void assertTabShown(SessionManager sessions, int slot, CreativeModeTab expected) {
+        require(sessions.focusedSlot() == slot, "Focus must land on session " + slot);
+        require(sessions.focusedScreen() instanceof CreativeModeInventoryScreen,
+                "Session " + slot + " must have an open creative inventory");
+        require(CreativeModeInventoryScreenAccessor.aero$getSelectedTab() == expected,
+                "Session " + slot + " must restore its own selected tab, not the other session's");
+    }
+
+    private static void assertGridOwnTab(SessionManager sessions) {
+        CreativeModeInventoryScreen screen = (CreativeModeInventoryScreen) sessions.focusedScreen();
+        var items = screen.getMenu().items;
+        require(items.size() > 45, "Category tab must expose enough display items to fill the grid");
+        var container = screen.getMenu().slots.get(0).container;
+        for (int i = 0; i < 45; i++) {
+            require(ItemStack.isSameItemSameComponents(container.getItem(i), items.get(i)),
+                    "Item grid slot " + i + " must show this session's own tab, not another tab");
+        }
+    }
+
+    private static CreativeModeTab categoryTab(int skip) {
+        int seen = 0;
+        for (CreativeModeTab tab : CreativeModeTabs.allTabs()) {
+            if (tab.getType() == CreativeModeTab.Type.CATEGORY && !tab.getDisplayItems().isEmpty()) {
+                if (seen++ == skip) return tab;
+            }
+        }
+        return null;
+    }
+
+    private static CreativeModeTab inventoryTab() {
+        for (CreativeModeTab tab : CreativeModeTabs.allTabs()) {
+            if (tab.getType() == CreativeModeTab.Type.INVENTORY) return tab;
+        }
+        return null;
+    }
+
+    private void transitionCreative(CreativePhase next) {
+        cPhase = next;
+        cDeadline = System.nanoTime() + 120_000_000_000L;
+        AeroSwitchClient.LOGGER.info("AERO_SESSION_TEST_PHASE {}", next);
+    }
+
     private static CompletableFuture<ServerSample> sample(IntegratedServer server) {
         return server.submit(() -> new ServerSample(server.isPaused(), server.overworld().getGameTime(),
                 server.overworld().getBlockState(MARKER).is(Blocks.EMERALD_BLOCK)));
@@ -371,5 +542,9 @@ public final class SessionScenarioClient implements ClientModInitializer {
     private enum Phase {
         TITLE, FIRST, SECOND, MOVEMENT_ASSERT, PAUSE_SAMPLE, PAUSE_READ, PAUSE_COMPARE, PAUSE_ASSERT,
         RUN_SAMPLE, RUN_ASSERT, SWITCHING, CLOSED_FIRST, CLOSED_BOTH, REOPEN, PERSISTED, FINISH, DONE
+    }
+
+    private enum CreativePhase {
+        TITLE, FIRST, SECOND, OPEN_B, CADENCE, CRASH, FINISH, DONE
     }
 }

@@ -2,6 +2,8 @@ package com.bluepotatobp.aeroswitch.ui;
 
 import com.bluepotatobp.aeroswitch.AeroSwitchClient;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
+import imgui.ImFontAtlas;
+import imgui.ImFontConfig;
 import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.ImGuiStyle;
@@ -19,6 +21,7 @@ import net.minecraft.network.chat.Component;
 public final class ImGuiSessionOverlay {
     private static final ImGuiImplGlfw GLFW = new ImGuiImplGlfw();
     private static final ImGuiImplGl3 GL3 = new ImGuiImplGl3();
+    private static final float BASE_FONT_SIZE = 13.0F;
     private static boolean initialized;
     private static boolean unavailable;
     private static float guiScale;
@@ -61,7 +64,7 @@ public final class ImGuiSessionOverlay {
         io.setIniFilename(null);
         guiScale = Math.max(1.0F, client.getWindow().getGuiScale());
         style(ImGui.getStyle(), guiScale);
-        io.setFontGlobalScale(guiScale);
+        reloadFont(io, guiScale);
         if (!GLFW.init(client.getWindow().handle(), true) || !GL3.init("#version 150")) {
             throw new IllegalStateException("Could not initialize ImGui backends");
         }
@@ -72,8 +75,35 @@ public final class ImGuiSessionOverlay {
         float currentScale = Math.max(1.0F, client.getWindow().getGuiScale());
         if (currentScale == guiScale) return;
         ImGui.getStyle().scaleAllSizes(currentScale / guiScale);
-        ImGui.getIO().setFontGlobalScale(currentScale);
         guiScale = currentScale;
+        reloadFont(ImGui.getIO(), guiScale);
+    }
+
+    /**
+     * Rasterizes the default font at the physical pixel size for the current GUI
+     * scale. Scaling a 13px atlas up with {@code FontGlobalScale} is what made the
+     * overlay blurry; rebuilding at {@code BASE_FONT_SIZE * scale} keeps the same
+     * apparent size while producing crisp glyphs.
+     */
+    private static void reloadFont(ImGuiIO io, float scale) {
+        ImFontAtlas atlas = io.getFonts();
+        atlas.clear();
+        ImFontConfig config = new ImFontConfig();
+        config.setSizePixels(BASE_FONT_SIZE * scale);
+        config.setOversampleH(1);
+        config.setOversampleV(1);
+        atlas.addFontDefault(config);
+        config.destroy();
+        atlas.build();
+        if (initialized) {
+            GL3.destroyFontsTexture();
+            GL3.createFontsTexture();
+        }
+    }
+
+    /** True when the overlay is open and ImGui wants the mouse (e.g. over the F8 deck). */
+    public static boolean wantsCaptureMouse() {
+        return initialized && !unavailable && ImGui.getIO().getWantCaptureMouse();
     }
 
     private static void style(ImGuiStyle style, float scale) {
@@ -112,38 +142,27 @@ public final class ImGuiSessionOverlay {
     private static void drawPaneBorders(SessionManager manager) {
         if (!manager.isSplitPresented()) return;
         ImGuiIO io = ImGui.getIO();
-        float width = io.getDisplaySizeX();
-        float height = io.getDisplaySizeY();
+        int width = (int) io.getDisplaySizeX();
+        int height = (int) io.getDisplaySizeY();
         float thickness = Math.max(2.0F, 2.0F * guiScale);
         float inset = thickness / 2.0F;
         int activeColor = 0xFFAFCB68;
         int inactiveColor = 0xFF5C534B;
         ImDrawList draw = ImGui.getBackgroundDrawList();
 
-        if (manager.layoutMode() == SessionManager.LayoutMode.SPLIT_VERTICAL) {
-            float middle = width / 2.0F;
-            int leftColor = manager.focusedSlot() == 0 ? activeColor : inactiveColor;
-            int rightColor = manager.focusedSlot() == 1 ? activeColor : inactiveColor;
-            draw.addLine(inset, inset, middle, inset, leftColor, thickness);
-            draw.addLine(inset, height - inset, middle, height - inset, leftColor, thickness);
-            draw.addLine(inset, inset, inset, height - inset, leftColor, thickness);
-            draw.addLine(middle, inset, width - inset, inset, rightColor, thickness);
-            draw.addLine(middle, height - inset, width - inset, height - inset, rightColor, thickness);
-            draw.addLine(width - inset, inset, width - inset, height - inset, rightColor, thickness);
-            draw.addLine(middle, inset, middle, height - inset,
-                    manager.focusedSlot() == 0 ? leftColor : rightColor, thickness);
-        } else {
-            float middle = height / 2.0F;
-            int topColor = manager.focusedSlot() == 0 ? activeColor : inactiveColor;
-            int bottomColor = manager.focusedSlot() == 1 ? activeColor : inactiveColor;
-            draw.addLine(inset, inset, width - inset, inset, topColor, thickness);
-            draw.addLine(inset, inset, inset, middle, topColor, thickness);
-            draw.addLine(width - inset, inset, width - inset, middle, topColor, thickness);
-            draw.addLine(inset, height - inset, width - inset, height - inset, bottomColor, thickness);
-            draw.addLine(inset, middle, inset, height - inset, bottomColor, thickness);
-            draw.addLine(width - inset, middle, width - inset, height - inset, bottomColor, thickness);
-            draw.addLine(inset, middle, width - inset, middle,
-                    manager.focusedSlot() == 0 ? topColor : bottomColor, thickness);
+        for (int slot = 0; slot < manager.maxSessions(); slot++) {
+            if (!manager.hasSession(slot)) continue;
+            int[] bounds = manager.paneBounds(slot, width, height);
+            if (bounds[2] <= 0 || bounds[3] <= 0) continue;
+            int color = manager.focusedSlot() == slot ? activeColor : inactiveColor;
+            float x0 = bounds[0] + inset;
+            float y0 = bounds[1] + inset;
+            float x1 = bounds[0] + bounds[2] - inset;
+            float y1 = bounds[1] + bounds[3] - inset;
+            draw.addLine(x0, y0, x1, y0, color, thickness);
+            draw.addLine(x0, y1, x1, y1, color, thickness);
+            draw.addLine(x0, y0, x0, y1, color, thickness);
+            draw.addLine(x1, y0, x1, y1, color, thickness);
         }
     }
 
@@ -157,19 +176,32 @@ public final class ImGuiSessionOverlay {
         int flags = ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize
                 | ImGuiWindowFlags.NoSavedSettings;
         if (ImGui.begin("Aero Switch", flags)) {
-            ImGui.textColored(0.41F, 0.80F, 0.69F, 1.0F, "TWO-SESSION CONTROL DECK");
+            ImGui.textColored(0.41F, 0.80F, 0.69F, 1.0F, "MULTI-SESSION CONTROL DECK");
             ImGui.text("Choose how occupied sessions are presented and which one owns input.");
             ImGui.separatorText("Layout");
-            layoutButton(manager, SessionManager.LayoutMode.TABS, "Tabs");
+            int count = manager.sessionCount();
+            layoutButton(client, manager, SessionManager.LayoutMode.TABS, "Tabs");
             ImGui.sameLine();
-            layoutButton(manager, SessionManager.LayoutMode.SPLIT_VERTICAL, "Side by side");
-            ImGui.sameLine();
-            layoutButton(manager, SessionManager.LayoutMode.SPLIT_HORIZONTAL, "Stacked");
+            layoutButton(client, manager, SessionManager.LayoutMode.SPLIT_VERTICAL, "Side by side");
+            if (count >= 4) {
+                ImGui.sameLine();
+                layoutButton(client, manager, SessionManager.LayoutMode.GRID, "Four way");
+            }
+            if (count == 3) {
+                ImGui.sameLine();
+                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_LEFT, "1|2");
+                ImGui.sameLine();
+                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_RIGHT, "2|1");
+                ImGui.sameLine();
+                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_TOP, "1/2");
+                ImGui.sameLine();
+                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_BOTTOM, "2/1");
+            }
 
-            for (int slot = 0; slot < 2; slot++) drawSession(client, manager, slot);
+            for (int slot = 0; slot < manager.maxSessions(); slot++) drawSession(client, manager, slot);
 
             ImGui.separator();
-            boolean full = manager.sessionCount() >= 2;
+            boolean full = manager.sessionCount() >= manager.maxSessions();
             ImGui.beginDisabled(full);
             if (ImGui.button("Open local world", 170.0F * guiScale, 32.0F * guiScale)) {
                 defer(client, () -> {
@@ -191,8 +223,75 @@ public final class ImGuiSessionOverlay {
         ImGui.end();
     }
 
-    private static void layoutButton(SessionManager manager, SessionManager.LayoutMode mode, String label) {
-        if (ImGui.radioButton(label, manager.layoutMode() == mode)) manager.setLayoutMode(mode);
+    private static void layoutButton(Minecraft client, SessionManager manager, SessionManager.LayoutMode mode, String label) {
+        boolean selected = manager.layoutMode() == mode;
+        float size = 44.0F * guiScale;
+        ImGui.pushID("layout_" + mode.name());
+        if (selected) {
+            ImGui.pushStyleColor(ImGuiCol.Button, 44, 114, 142, 255);
+            ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 56, 139, 171, 255);
+        }
+        boolean clicked = ImGui.button("", size, size);
+        if (selected) {
+            ImGui.popStyleColor();
+            ImGui.popStyleColor();
+        }
+        drawLayoutIcon(ImGui.getWindowDrawList(), ImGui.getItemRectMinX(), ImGui.getItemRectMinY(),
+                ImGui.getItemRectMaxX(), ImGui.getItemRectMaxY(), mode);
+        ImGui.popID();
+        if (ImGui.isItemHovered()) {
+            ImGui.beginTooltip();
+            ImGui.text(label);
+            ImGui.endTooltip();
+        }
+        if (clicked) defer(client, () -> manager.setLayoutMode(mode));
+    }
+
+    /** Draws a miniature pane diagram for a layout mode inside a button's bounds. */
+    private static void drawLayoutIcon(ImDrawList draw, float x, float y, float x2, float y2, SessionManager.LayoutMode mode) {
+        int fill = 0xFF6A7482;
+        int line = 0xFFE3E8EE;
+        float gap = 2.5F * guiScale;
+        float cx = (x2 - x) / 2.0F;
+        float cy = (y2 - y) / 2.0F;
+        switch (mode) {
+            case TABS -> iconCell(draw, x, y, x2, y2, fill, line);
+            case SPLIT_VERTICAL -> {
+                iconCell(draw, x, y, x + cx - gap, y2, fill, line);
+                iconCell(draw, x + cx + gap, y, x2, y2, fill, line);
+            }
+            case GRID -> {
+                iconCell(draw, x, y, x + cx - gap, y + cy - gap, fill, line);
+                iconCell(draw, x + cx + gap, y, x2, y + cy - gap, fill, line);
+                iconCell(draw, x, y + cy + gap, x + cx - gap, y2, fill, line);
+                iconCell(draw, x + cx + gap, y + cy + gap, x2, y2, fill, line);
+            }
+            case TRIPLE_LEFT -> {
+                iconCell(draw, x, y, x + cx - gap, y2, fill, line);
+                iconCell(draw, x + cx + gap, y, x2, y + cy - gap, fill, line);
+                iconCell(draw, x + cx + gap, y + cy + gap, x2, y2, fill, line);
+            }
+            case TRIPLE_RIGHT -> {
+                iconCell(draw, x, y, x + cx - gap, y + cy - gap, fill, line);
+                iconCell(draw, x, y + cy + gap, x + cx - gap, y2, fill, line);
+                iconCell(draw, x + cx + gap, y, x2, y2, fill, line);
+            }
+            case TRIPLE_TOP -> {
+                iconCell(draw, x, y, x2, y + cy - gap, fill, line);
+                iconCell(draw, x, y + cy + gap, x + cx - gap, y2, fill, line);
+                iconCell(draw, x + cx + gap, y + cy + gap, x2, y2, fill, line);
+            }
+            case TRIPLE_BOTTOM -> {
+                iconCell(draw, x, y, x + cx - gap, y + cy - gap, fill, line);
+                iconCell(draw, x + cx + gap, y, x2, y + cy - gap, fill, line);
+                iconCell(draw, x, y + cy + gap, x2, y2, fill, line);
+            }
+        }
+    }
+
+    private static void iconCell(ImDrawList draw, float x0, float y0, float x1, float y1, int fill, int line) {
+        draw.addRectFilled(x0, y0, x1, y1, fill);
+        draw.addRect(x0, y0, x1, y1, line, 0.0F, 0, Math.max(1.0F, guiScale));
     }
 
     private static void drawSession(Minecraft client, SessionManager manager, int slot) {
@@ -243,11 +342,18 @@ public final class ImGuiSessionOverlay {
         return switch (mode) {
             case TABS -> "Tabs";
             case SPLIT_VERTICAL -> "Side by side";
-            case SPLIT_HORIZONTAL -> "Stacked";
+            case GRID -> "Four way";
+            case TRIPLE_LEFT -> "1|2";
+            case TRIPLE_RIGHT -> "2|1";
+            case TRIPLE_TOP -> "1/2";
+            case TRIPLE_BOTTOM -> "2/1";
         };
     }
 
     private static void defer(Minecraft client, Runnable action) {
-        client.execute(action);
+        // `execute` runs synchronously on the client thread, and ImGui callbacks run
+        // on the client thread mid-render-frame. `schedule` always queues, so the
+        // action runs safely in the next frame's runAllTasks (between frames).
+        client.schedule(action);
     }
 }

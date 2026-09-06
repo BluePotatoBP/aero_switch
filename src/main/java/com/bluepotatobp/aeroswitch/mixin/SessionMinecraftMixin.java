@@ -84,4 +84,19 @@ public abstract class SessionMinecraftMixin {
             ci.cancel();
         }
     }
+
+    // On window resize, vanilla lays the active screen out for the FULL window via
+    // resizeGui() -> screen.resize(getGuiScaledWidth/Height). In split layouts the
+    // screen must be sized to its pane, matching what setScreen already does.
+    @Redirect(method = "resizeGui", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getGuiScaledWidth()I"))
+    private int aero$resizeGuiWidth(com.mojang.blaze3d.platform.Window window) {
+        return SessionManager.get().renderGuiWidth(window.getWidth(), window.getGuiScale());
+    }
+
+    @Redirect(method = "resizeGui", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getGuiScaledHeight()I"))
+    private int aero$resizeGuiHeight(com.mojang.blaze3d.platform.Window window) {
+        return SessionManager.get().renderGuiHeight(window.getHeight(), window.getGuiScale());
+    }
 }

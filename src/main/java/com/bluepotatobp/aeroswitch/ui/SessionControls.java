@@ -42,9 +42,12 @@ public final class SessionControls {
             return true;
         }
         if (switchKey.matches(event)) {
-            int next = manager.focusedSlot() == 0 ? 1 : 0;
-            if (manager.hasSession(next)) {
-                manager.focus(next);
+            for (int step = 1; step <= manager.maxSessions(); step++) {
+                int next = (manager.focusedSlot() + step) % manager.maxSessions();
+                if (manager.hasSession(next)) {
+                    manager.focus(next);
+                    break;
+                }
             }
             return true;
         }

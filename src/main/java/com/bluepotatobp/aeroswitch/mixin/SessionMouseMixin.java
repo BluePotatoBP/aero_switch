@@ -1,6 +1,7 @@
 package com.bluepotatobp.aeroswitch.mixin;
 
 import com.bluepotatobp.aeroswitch.session.SessionManager;
+import com.bluepotatobp.aeroswitch.ui.ImGuiSessionOverlay;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -11,6 +12,7 @@ import net.minecraft.client.input.MouseButtonInfo;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -25,7 +27,7 @@ public abstract class SessionMouseMixin {
     private void aero$focusPane(long handle, MouseButtonInfo button, int action, CallbackInfo ci) {
         MouseHandler mouse = (MouseHandler) (Object) this;
         if (action != InputConstants.PRESS || button.button() != InputConstants.MOUSE_BUTTON_LEFT
-                || mouse.isMouseGrabbed()) return;
+                || mouse.isMouseGrabbed() || ImGuiSessionOverlay.wantsCaptureMouse()) return;
         Minecraft client = Minecraft.getInstance();
         Window window = client.getWindow();
         if (handle != window.handle()) return;
@@ -48,5 +50,33 @@ public abstract class SessionMouseMixin {
             at = @At("RETURN"), cancellable = true)
     private void aero$paneScaledY(CallbackInfoReturnable<Double> cir) {
         cir.setReturnValue(SessionManager.get().paneScaledY(cir.getReturnValue()));
+    }
+
+    // Vanilla recentres the cursor on the full window whenever it grabs or releases
+    // the mouse. In split layouts the cursor should land on the centre of the active
+    // pane instead. Redirect only the two size reads inside grabMouse/releaseMouse so
+    // the "size / 2" arithmetic yields the pane centre and nothing else is affected.
+    @Redirect(method = "grabMouse", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getScreenWidth()I"))
+    private int aero$grabCenterX(Window window) {
+        return SessionManager.get().mouseCenterScreenWidth(window.getScreenWidth());
+    }
+
+    @Redirect(method = "grabMouse", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getScreenHeight()I"))
+    private int aero$grabCenterY(Window window) {
+        return SessionManager.get().mouseCenterScreenHeight(window.getScreenHeight());
+    }
+
+    @Redirect(method = "releaseMouse", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getScreenWidth()I"))
+    private int aero$releaseCenterX(Window window) {
+        return SessionManager.get().mouseCenterScreenWidth(window.getScreenWidth());
+    }
+
+    @Redirect(method = "releaseMouse", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/platform/Window;getScreenHeight()I"))
+    private int aero$releaseCenterY(Window window) {
+        return SessionManager.get().mouseCenterScreenHeight(window.getScreenHeight());
     }
 }

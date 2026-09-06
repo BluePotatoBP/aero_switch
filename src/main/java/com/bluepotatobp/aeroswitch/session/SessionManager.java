@@ -4,6 +4,7 @@ import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.opengl.GlTexture;
+import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.KeyMapping;
@@ -23,23 +24,39 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.LevelStorageSource;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Collections;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import org.lwjgl.opengl.GL43C;
 
-/** Experimental, client-thread-confined two-session scheduler. */
+/** Experimental, client-thread-confined multi-session scheduler with pane layouts. */
 public final class SessionManager {
+    /** Maximum number of simultaneous sessions. */
+    public static final int MAX_SESSIONS = 4;
+
+    /** A normalized (0..1) rectangle describing where a pane sits in the window. */
+    public record Pane(float x, float y, float w, float h) {}
+
     public enum LayoutMode {
         TABS,
         SPLIT_VERTICAL,
-        SPLIT_HORIZONTAL
+        GRID,
+        TRIPLE_LEFT,
+        TRIPLE_RIGHT,
+        TRIPLE_TOP,
+        TRIPLE_BOTTOM;
+
+        boolean isTriple() {
+            return this == TRIPLE_LEFT || this == TRIPLE_RIGHT || this == TRIPLE_TOP || this == TRIPLE_BOTTOM;
+        }
     }
 
     private static final SessionManager INSTANCE = new SessionManager();
     private final boolean enabled = Boolean.getBoolean("aeroSwitch.experimental");
-    private final ClientSession[] slots = new ClientSession[2];
+    private final ClientSession[] slots = new ClientSession[MAX_SESSIONS];
     private final Map<Connection, ClientSession> connections = new ConcurrentHashMap<>();
     private final Map<PacketListener, ClientSession> listeners = new ConcurrentHashMap<>();
     private final Map<IntegratedServer, Boolean> serverPause = new ConcurrentHashMap<>();
@@ -96,7 +113,11 @@ public final class SessionManager {
     public boolean hasSession(int slot) {
         if (!enabled) return slot == 0 && mc().level != null;
         adopt();
-        return slot >= 0 && slot < 2 && slots[slot] != null && slots[slot].occupied;
+        return slot >= 0 && slot < slots.length && slots[slot] != null && slots[slot].occupied;
+    }
+
+    public int maxSessions() {
+        return slots.length;
     }
 
     public boolean keepRunning(int slot) {
@@ -116,9 +137,9 @@ public final class SessionManager {
         if (!enabled) throw new IllegalStateException("Enable -DaeroSwitch.experimental=true");
         adopt();
         if (scoped != 0) throw new IllegalStateException("Cannot create a session inside a scoped callback");
-        if (sessionCount() >= 2) throw new IllegalStateException("Both session slots are occupied");
+        int target = freeSlot();
+        if (target < 0) throw new IllegalStateException("All session slots are occupied");
         if (!active.occupied) return;
-        int target = 1 - active.slot;
         ClientSession next = slots[target];
         if (next == null) {
             next = new ClientSession(target);
@@ -154,9 +175,16 @@ public final class SessionManager {
     }
 
     private ClientSession require(int slot) {
-        if (slot < 0 || slot > 1 || slots[slot] == null || !slots[slot].occupied)
+        if (slot < 0 || slot >= slots.length || slots[slot] == null || !slots[slot].occupied)
             throw new IllegalArgumentException("No session in slot " + slot);
         return slots[slot];
+    }
+
+    private int freeSlot() {
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i] == null || !slots[i].occupied) return i;
+        }
+        return -1;
     }
 
     public void setKeepRunning(int slot, boolean value) {
@@ -192,8 +220,30 @@ public final class SessionManager {
         checkThread();
         if (!enabled) return;
         adopt();
+        if (layoutMode == value) return;
         layoutMode = value;
         updateVisibility();
+        resizeScreens();
+    }
+
+    /** Re-lays out every open screen for its new pane size after a layout change. */
+    private void resizeScreens() {
+        Window window = mc().getWindow();
+        int width = window.getWidth();
+        int height = window.getHeight();
+        int guiScale = window.getGuiScale();
+        for (ClientSession session : slots) {
+            if (session == null || !session.occupied) continue;
+            if (session == active) {
+                Screen screen = mc().gui.screen();
+                if (screen != null) screen.resize(renderGuiWidth(width, guiScale), renderGuiHeight(height, guiScale));
+            } else {
+                inContext(session, () -> {
+                    Screen screen = mc().gui.screen();
+                    if (screen != null) screen.resize(renderGuiWidth(width, guiScale), renderGuiHeight(height, guiScale));
+                });
+            }
+        }
     }
 
     public Screen focusedScreen() {
@@ -218,13 +268,16 @@ public final class SessionManager {
 
     public boolean focusPane(double x, double y, int width, int height) {
         checkThread();
-        if (!enabled || layoutMode == LayoutMode.TABS || occupiedCount() != 2) return false;
-        int target = layoutMode == LayoutMode.SPLIT_VERTICAL
-                ? (x < width / 2.0 ? 0 : 1)
-                : (y < height / 2.0 ? 0 : 1);
-        if (target == focused) return false;
-        focus(target);
-        return true;
+        if (!enabled || layoutMode == LayoutMode.TABS) return false;
+        for (ClientSession session : presentedSessions()) {
+            int[] bounds = paneBounds(session.slot, width, height);
+            if (x >= bounds[0] && x < bounds[0] + bounds[2] && y >= bounds[1] && y < bounds[1] + bounds[3]) {
+                if (session.slot == focused) return false;
+                focus(session.slot);
+                return true;
+            }
+        }
+        return false;
     }
 
     public void withSession(int slot, Runnable action) {
@@ -277,9 +330,11 @@ public final class SessionManager {
         ClientSession target = require(slot);
         inContext(target, () -> disconnect(new TitleScreen()));
         if (focused == slot) {
-            ClientSession other = slots[1 - slot];
-            if (other != null && other.occupied) focus(other.slot);
+            for (ClientSession other : slots) {
+                if (other != null && other.occupied) { focus(other.slot); break; }
+            }
         }
+        updateVisibility();
     }
 
     /** Replaces only experimental teardown; other capsules and queued work remain intact. */
@@ -374,17 +429,13 @@ public final class SessionManager {
     }
 
     public int renderWidth(int physicalWidth) {
-        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_VERTICAL || !isSplitPresented())
-            return physicalWidth;
-        int firstWidth = physicalWidth / 2;
-        return active.slot == 0 ? firstWidth : physicalWidth - firstWidth;
+        Pane pane = activePane();
+        return pane == null ? physicalWidth : Math.max(1, Math.round(physicalWidth * pane.w()));
     }
 
     public int renderHeight(int physicalHeight) {
-        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_HORIZONTAL || !isSplitPresented())
-            return physicalHeight;
-        int firstHeight = physicalHeight / 2;
-        return active.slot == 0 ? firstHeight : physicalHeight - firstHeight;
+        Pane pane = activePane();
+        return pane == null ? physicalHeight : Math.max(1, Math.round(physicalHeight * pane.h()));
     }
 
     public int renderGuiWidth(int physicalWidth, int guiScale) {
@@ -395,29 +446,132 @@ public final class SessionManager {
         return (int) Math.ceil(renderHeight(physicalHeight) / (double) guiScale);
     }
 
-    /** Maps a full-window scaled mouse X into the focused pane's local GUI X. */
+    /** Normalized rectangle for a session slot in the current layout, or null if it has no pane. */
+    public Pane paneFor(int slot) {
+        if (!enabled) return new Pane(0, 0, 1, 1);
+        if (layoutMode == LayoutMode.TABS) return slot == focused ? new Pane(0, 0, 1, 1) : null;
+        List<ClientSession> presented = presentedSessions();
+        for (int i = 0; i < presented.size(); i++) {
+            if (presented.get(i).slot == slot) return layoutRect(layoutMode, i, presented.size());
+        }
+        return null;
+    }
+
+    /** Pixel-space destination rectangle {x, y, w, h} for a session pane; tiles exactly. */
+    public int[] paneBounds(int slot, int totalWidth, int totalHeight) {
+        Pane pane = paneFor(slot);
+        if (pane == null) return new int[]{0, 0, totalWidth, totalHeight};
+        int x = Math.round(totalWidth * pane.x());
+        int y = Math.round(totalHeight * pane.y());
+        int x2 = Math.round(totalWidth * (pane.x() + pane.w()));
+        int y2 = Math.round(totalHeight * (pane.y() + pane.h()));
+        return new int[]{x, y, x2 - x, y2 - y};
+    }
+
+    private Pane activePane() {
+        return enabled && active != null ? paneFor(active.slot) : null;
+    }
+
+    private static Pane layoutRect(LayoutMode mode, int index, int count) {
+        if (mode == LayoutMode.TABS || count <= 1) return new Pane(0, 0, 1, 1);
+        if (mode == LayoutMode.GRID && count == 4) {
+            int col = index % 2;
+            int row = index / 2;
+            return new Pane(col * 0.5F, row * 0.5F, 0.5F, 0.5F);
+        }
+        if (mode.isTriple() && count == 3) {
+            return switch (mode) {
+                case TRIPLE_LEFT -> switch (index) {
+                    case 0 -> new Pane(0, 0, 0.5F, 1);
+                    case 1 -> new Pane(0.5F, 0, 0.5F, 0.5F);
+                    default -> new Pane(0.5F, 0.5F, 0.5F, 0.5F);
+                };
+                case TRIPLE_RIGHT -> switch (index) {
+                    case 0 -> new Pane(0, 0, 0.5F, 0.5F);
+                    case 1 -> new Pane(0, 0.5F, 0.5F, 0.5F);
+                    default -> new Pane(0.5F, 0, 0.5F, 1);
+                };
+                case TRIPLE_TOP -> switch (index) {
+                    case 0 -> new Pane(0, 0, 1, 0.5F);
+                    case 1 -> new Pane(0, 0.5F, 0.5F, 0.5F);
+                    default -> new Pane(0.5F, 0.5F, 0.5F, 0.5F);
+                };
+                case TRIPLE_BOTTOM -> switch (index) {
+                    case 0 -> new Pane(0, 0, 0.5F, 0.5F);
+                    case 1 -> new Pane(0.5F, 0, 0.5F, 0.5F);
+                    default -> new Pane(0, 0.5F, 1, 0.5F);
+                };
+                default -> throw new IllegalStateException("Unexpected triple mode " + mode);
+            };
+        }
+        // Fallback: equal vertical columns (also used by SPLIT_VERTICAL for any count).
+        return new Pane((float) index / count, 0, 1.0F / count, 1);
+    }
+
+    private List<ClientSession> presentedSessions() {
+        List<ClientSession> list = new ArrayList<>();
+        for (ClientSession session : slots) {
+            if (session != null && (session.occupied || session == active)) list.add(session);
+        }
+        return list;
+    }
+
+    public int presentedCount() {
+        return presentedSessions().size();
+    }
+
+    /**
+     * Maps a full-window scaled mouse X into the focused pane's local GUI X.
+     * When the installed context is a background session, freeze the cursor at that
+     * pane's centre so its GUI (e.g. the inventory puppet) does not track the mouse
+     * that is physically hovering over the focused pane.
+     */
     public double paneScaledX(double fullScaledX) {
-        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_VERTICAL || !isSplitPresented())
-            return fullScaledX;
-        return active.slot == 0 ? fullScaledX : fullScaledX - mc().getWindow().getGuiScaledWidth() / 2.0;
+        if (isBackgroundContext()) {
+            return renderGuiWidth(mc().getWindow().getWidth(), mc().getWindow().getGuiScale()) / 2.0;
+        }
+        Pane pane = activePane();
+        if (pane == null) return fullScaledX;
+        Window window = mc().getWindow();
+        return fullScaledX - Math.round(window.getScreenWidth() * pane.x()) / (double) window.getGuiScale();
     }
 
-    /** Maps a full-window scaled mouse Y into the focused pane's local GUI Y. */
+    /** Maps a full-window scaled mouse Y into the focused pane's local GUI Y (see {@link #paneScaledX}). */
     public double paneScaledY(double fullScaledY) {
-        if (!enabled || active == null || layoutMode != LayoutMode.SPLIT_HORIZONTAL || !isSplitPresented())
-            return fullScaledY;
-        return active.slot == 0 ? fullScaledY : fullScaledY - mc().getWindow().getGuiScaledHeight() / 2.0;
+        if (isBackgroundContext()) {
+            return renderGuiHeight(mc().getWindow().getHeight(), mc().getWindow().getGuiScale()) / 2.0;
+        }
+        Pane pane = activePane();
+        if (pane == null) return fullScaledY;
+        Window window = mc().getWindow();
+        return fullScaledY - Math.round(window.getScreenHeight() * pane.y()) / (double) window.getGuiScale();
     }
 
-    private int occupiedCount() {
-        int count = 0;
-        for (ClientSession session : slots) if (session != null && session.occupied) count++;
-        return count;
+    /**
+     * Screen-size value whose {@code / 2} equals the active pane's horizontal centre.
+     * Vanilla {@code MouseHandler.grabMouse/releaseMouse} set the cursor to
+     * {@code getScreenWidth() / 2}, which always lands on the full-window centre;
+     * redirecting those calls through here centres on the pane instead.
+     */
+    public int mouseCenterScreenWidth(int physicalWidth) {
+        Pane pane = activePane();
+        if (pane == null) return physicalWidth;
+        int x = Math.round(physicalWidth * pane.x());
+        int w = Math.max(1, Math.round(physicalWidth * pane.w()));
+        return 2 * (x + w / 2);
+    }
+
+    /** Vertical counterpart to {@link #mouseCenterScreenWidth}. */
+    public int mouseCenterScreenHeight(int physicalHeight) {
+        Pane pane = activePane();
+        if (pane == null) return physicalHeight;
+        int y = Math.round(physicalHeight * pane.y());
+        int h = Math.max(1, Math.round(physicalHeight * pane.h()));
+        return 2 * (y + h / 2);
     }
 
     public boolean isSplitPresented() {
-        if (!enabled || layoutMode == LayoutMode.TABS || slots[0] == null || slots[1] == null) return false;
-        return (slots[0].occupied || slots[0] == active) && (slots[1].occupied || slots[1] == active);
+        return enabled && layoutMode != LayoutMode.TABS && presentedCount() >= 2;
     }
 
     public RenderTarget presentationTarget(RenderTarget focusedTarget) {
@@ -428,21 +582,18 @@ public final class SessionManager {
         else if (compositeTarget.width != width || compositeTarget.height != height) compositeTarget.resize(width, height);
         RenderSystem.getDevice().createCommandEncoder().submit();
         if (!(compositeTarget.getColorTexture() instanceof GlTexture destination)) return focusedTarget;
-        int offset = 0;
-        for (ClientSession session : slots) {
+        for (ClientSession session : presentedSessions()) {
             RenderTarget source = session.renderer.mainRenderTarget();
             if (!(source.getColorTexture() instanceof GlTexture texture)) return focusedTarget;
-            int x = layoutMode == LayoutMode.SPLIT_VERTICAL ? offset : 0;
-            int y = layoutMode == LayoutMode.SPLIT_HORIZONTAL ? offset : 0;
-            int paneWidth = layoutMode == LayoutMode.SPLIT_VERTICAL
-                    ? (session.slot == 0 ? width / 2 : width - width / 2) : width;
-            int paneHeight = layoutMode == LayoutMode.SPLIT_HORIZONTAL
-                    ? (session.slot == 0 ? height / 2 : height - height / 2) : height;
-            int copyWidth = Math.min(source.width, paneWidth);
-            int copyHeight = Math.min(source.height, paneHeight);
+            int[] bounds = paneBounds(session.slot, width, height);
+            int copyWidth = Math.min(source.width, bounds[2]);
+            int copyHeight = Math.min(source.height, bounds[3]);
+            // glCopyImageSubData uses a bottom-left texel origin, while paneBounds uses
+            // top-left screen coords. Flip the destination Y so the composite is not
+            // vertically mirrored (matters for GRID and the triple layouts).
+            int dstY = height - bounds[1] - copyHeight;
             GL43C.glCopyImageSubData(texture.glId(), GL43C.GL_TEXTURE_2D, 0, 0, 0, 0,
-                destination.glId(), GL43C.GL_TEXTURE_2D, 0, x, y, 0, copyWidth, copyHeight, 1);
-            offset += layoutMode == LayoutMode.SPLIT_VERTICAL ? paneWidth : paneHeight;
+                destination.glId(), GL43C.GL_TEXTURE_2D, 0, bounds[0], dstY, 0, copyWidth, copyHeight, 1);
         }
         return compositeTarget;
     }
@@ -460,11 +611,11 @@ public final class SessionManager {
     }
 
     private void updateVisibility() {
-        boolean split = isSplitPresented();
         for (ClientSession session : slots) {
             if (session == null) continue;
-            if (session.visible != split) session.lastRender = 0;
-            session.visible = split && session.occupied;
+            boolean visible = paneFor(session.slot) != null;
+            if (session.visible != visible) session.lastRender = 0;
+            session.visible = visible;
         }
     }
 

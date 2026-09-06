@@ -7,7 +7,6 @@
   "screen.aero_switch.remote_notice": "Remote servers always keep running.",
   "screen.aero_switch.tabs": "Tabs",
   "screen.aero_switch.split_vertical": "Side by side",
-  "screen.aero_switch.split_horizontal": "Stacked",
   "screen.aero_switch.focus": "Focus session %s",
   "screen.aero_switch.running": "Keep running",
   "screen.aero_switch.pause_inactive": "Pause when inactive",

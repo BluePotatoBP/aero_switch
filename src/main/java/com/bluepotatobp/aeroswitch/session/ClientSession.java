@@ -1,5 +1,6 @@
 package com.bluepotatobp.aeroswitch.session;
 
+import com.bluepotatobp.aeroswitch.mixin.CreativeModeInventoryScreenAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionParticleAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionCloudAccessor;
@@ -8,6 +9,7 @@ import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.Hud;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.multiplayer.chat.report.ReportingContext;
@@ -20,6 +22,7 @@ import net.minecraft.client.renderer.extract.LevelExtractor;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.network.Connection;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.server.packs.resources.ReloadableResourceManager;
 
@@ -52,6 +55,7 @@ final class ClientSession {
     ParticleEngine particles;
     Gui gui;
     CameraType cameraType;
+    CreativeModeTab creativeTab;
 
     ClientSession(int slot) {
         this.slot = slot;
@@ -79,6 +83,9 @@ final class ClientSession {
         particles = mc.particleEngine;
         gui = mc.gui;
         cameraType = mc.options.getCameraType();
+        if (gui.screen() instanceof CreativeModeInventoryScreen) {
+            creativeTab = CreativeModeInventoryScreenAccessor.aero$getSelectedTab();
+        }
         if (level != null || server != null || pending != null) occupied = true;
     }
 
@@ -102,6 +109,16 @@ final class ClientSession {
         access.aero$particles(particles);
         access.aero$gui(gui);
         if (cameraType != null) mc.options.setCameraType(cameraType);
+        if (gui.screen() instanceof CreativeModeInventoryScreen screen && creativeTab != null) {
+            // Restore the shared static tab (the tab highlight), then re-sync the
+            // shared CONTAINER buffer (the item grid) from this screen's own item list
+            // at its current scroll offset. Do NOT call selectTab(): it resets the
+            // scroll to the top and rebuilds menu.slots from originalSlots, which is
+            // null on screens that never entered the Inventory tab (that branch is
+            // what crashed when another session was on the Inventory tab).
+            CreativeModeInventoryScreenAccessor.aero$setSelectedTab(creativeTab);
+            screen.getMenu().scrollTo(((CreativeModeInventoryScreenAccessor) screen).aero$getScrollOffs());
+        }
     }
 
     void createEngines(Minecraft mc) {
