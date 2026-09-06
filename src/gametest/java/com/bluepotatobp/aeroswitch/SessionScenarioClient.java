@@ -244,7 +244,8 @@ public final class SessionScenarioClient implements ClientModInitializer {
                     require(playerA.connection.getConnection().isConnected()
                             && playerB.connection.getConnection().isConnected(), "Switching disconnected a session");
                     if (++switches == 20) {
-                        sessions.close(0);
+                        sessions.focus(0);
+                        sessions.disconnect(new TitleScreen());
                         transition(Phase.CLOSED_FIRST);
                     } else {
                         waitTicks = 5;

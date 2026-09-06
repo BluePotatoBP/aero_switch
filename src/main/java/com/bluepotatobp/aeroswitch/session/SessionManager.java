@@ -539,12 +539,7 @@ public final class SessionManager {
         adopt();
         ClientSession target = require(slot);
         inContext(target, () -> disconnect(new TitleScreen()));
-        if (focused == slot) {
-            for (ClientSession other : slots) {
-                if (other != null && other.occupied) { focus(other.slot); break; }
-            }
-        }
-        updateVisibility();
+        finishDisconnect(slot);
     }
 
     /** Replaces only experimental teardown; other capsules and queued work remain intact. */
@@ -554,6 +549,7 @@ public final class SessionManager {
         if (closing) return;
         closing = true;
         ClientSession target = active;
+        boolean wasOccupied = target.occupied;
         try {
             Connection connection = target.connection;
             if (connection != null) {
@@ -594,6 +590,19 @@ public final class SessionManager {
         } finally {
             closing = false;
         }
+        if (wasOccupied && scoped == 0) finishDisconnect(target.slot);
+    }
+
+    private void finishDisconnect(int slot) {
+        if (focused == slot) {
+            for (ClientSession other : slots) {
+                if (other != null && other.occupied) {
+                    focus(other.slot);
+                    break;
+                }
+            }
+        }
+        updateVisibility();
     }
 
     public boolean isBackgroundContext() {
