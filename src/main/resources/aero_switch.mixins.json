@@ -5,6 +5,7 @@
   "client": [
     "MinecraftLifecycleMixin",
     "MinecraftStateAccessor",
+    "SessionOptionsAccessor",
     "ClientLevelStateAccessor",
     "ConnectionLifecycleMixin",
     "IntegratedServerDiagnosticsMixin",

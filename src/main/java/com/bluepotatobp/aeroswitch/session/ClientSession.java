@@ -2,6 +2,7 @@ package com.bluepotatobp.aeroswitch.session;
 
 import com.bluepotatobp.aeroswitch.mixin.CreativeModeInventoryScreenAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
+import com.bluepotatobp.aeroswitch.mixin.SessionOptionsAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionParticleAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionCloudAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionHudAccessor;
@@ -55,6 +56,7 @@ final class ClientSession {
     ParticleEngine particles;
     Gui gui;
     CameraType cameraType;
+    int serverRenderDistance;
     CreativeModeTab creativeTab;
 
     ClientSession(int slot) {
@@ -83,6 +85,7 @@ final class ClientSession {
         particles = mc.particleEngine;
         gui = mc.gui;
         cameraType = mc.options.getCameraType();
+        serverRenderDistance = ((SessionOptionsAccessor) mc.options).aero$serverRenderDistance();
         if (gui.screen() instanceof CreativeModeInventoryScreen) {
             creativeTab = CreativeModeInventoryScreenAccessor.aero$getSelectedTab();
         }
@@ -109,6 +112,7 @@ final class ClientSession {
         access.aero$particles(particles);
         access.aero$gui(gui);
         if (cameraType != null) mc.options.setCameraType(cameraType);
+        ((SessionOptionsAccessor) mc.options).aero$serverRenderDistance(serverRenderDistance);
         if (gui.screen() instanceof CreativeModeInventoryScreen screen && creativeTab != null) {
             // Restore the shared static tab (the tab highlight), then re-sync the
             // shared CONTAINER buffer (the item grid) from this screen's own item list
