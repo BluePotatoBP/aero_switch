@@ -1,11 +1,14 @@
 package com.bluepotatobp.aeroswitch.session;
 
+import com.bluepotatobp.aeroswitch.AeroSwitchClient;
 import com.bluepotatobp.aeroswitch.config.AeroSwitchConfig;
+import com.bluepotatobp.aeroswitch.mixin.GameRendererAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import com.bluepotatobp.aeroswitch.ui.SessionScreen;
 import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.opengl.GlTexture;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.DeltaTracker;
@@ -14,6 +17,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.player.ClientInput;
+import net.minecraft.client.renderer.PostChain;
+import net.minecraft.client.renderer.PostChainConfig;
+import net.minecraft.client.renderer.Projection;
+import net.minecraft.client.renderer.ProjectionMatrixBuffer;
+import net.minecraft.client.renderer.UniformValue;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketListener;
@@ -21,17 +29,21 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.LevelStorageSource;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import org.joml.Vector4f;
 import org.lwjgl.opengl.GL43C;
 
 /** Experimental, client-thread-confined multi-session scheduler with pane layouts. */
@@ -56,7 +68,20 @@ public final class SessionManager {
         }
     }
 
+    /** Direction for Alt+arrow focus navigation. */
+    public enum Direction {
+        LEFT, RIGHT, UP, DOWN
+    }
+
     private static final SessionManager INSTANCE = new SessionManager();
+    private static final Identifier DIM_SWAP_TARGET =
+            Identifier.fromNamespaceAndPath("aero_switch", "dim_swap");
+    private static final Identifier SCREENQUAD_SHADER =
+            Identifier.fromNamespaceAndPath("minecraft", "core/screenquad");
+    private static final Identifier DESATURATE_SHADER =
+            Identifier.fromNamespaceAndPath("aero_switch", "post/desaturate");
+    private static final Identifier BLIT_SHADER =
+            Identifier.fromNamespaceAndPath("minecraft", "post/blit");
     private final boolean enabled = Boolean.getBoolean("aeroSwitch.experimental");
     private final ClientSession[] slots = new ClientSession[MAX_SESSIONS];
     private final Map<Connection, ClientSession> connections = new ConcurrentHashMap<>();
@@ -75,15 +100,27 @@ public final class SessionManager {
     private LayoutMode layoutMode = LayoutMode.TABS;
     private MainTarget compositeTarget;
     private final AeroSwitchConfig config;
-    private boolean showBorders = true;
     private int borderThickness = 2;
+    private boolean showInfoPanel = true;
+    private boolean compactInfoPanel;
+    private int dimAmount;
+    private int cachedDimAmount = -1;
+    private PostChain dimChain;
+    private Projection dimProjection;
+    private ProjectionMatrixBuffer dimProjectionBuffer;
+    private final int[] focusModifiers = new int[8];
     private int lastSizedCount = -1;
 
     private SessionManager() {
         config = enabled ? AeroSwitchConfig.load() : null;
+        for (int i = 0; i < focusModifiers.length; i++) {
+            focusModifiers[i] = config != null ? config.focusModifiers[i] : InputConstants.MOD_ALT;
+        }
         if (config != null) {
-            showBorders = config.showBorders;
             borderThickness = config.borderThickness;
+            showInfoPanel = config.showInfoPanel;
+            compactInfoPanel = config.compactInfoPanel;
+            dimAmount = config.dimAmount;
         }
     }
 
@@ -203,6 +240,93 @@ public final class SessionManager {
         return -1;
     }
 
+    /** Focuses the session in the given direction (Alt+arrows). No wrap-around. */
+    public boolean focusDirection(Direction direction) {
+        checkThread();
+        if (!enabled) return false;
+        adopt();
+        if (sessionCount() <= 1) return false;
+
+        // In tab mode there is no geometry; left/right simply cycle the slot order.
+        if (layoutMode == LayoutMode.TABS) {
+            if (direction != Direction.LEFT && direction != Direction.RIGHT) return false;
+            return focusNextOccupied(direction == Direction.RIGHT ? 1 : -1);
+        }
+
+        int width = mc().getWindow().getWidth();
+        int height = mc().getWindow().getHeight();
+        int[] current = paneBounds(focused, width, height);
+        double cx = current[0] + current[2] / 2.0;
+        double cy = current[1] + current[3] / 2.0;
+
+        ClientSession best = nearest(direction, cx, cy, width, height);
+        if (best == null) return false;
+        focus(best.slot);
+        return true;
+    }
+
+    /** Focuses session 1..{@link #maxSessions()}, if that slot is occupied. */
+    public boolean focusByNumber(int number) {
+        checkThread();
+        if (!enabled) return false;
+        adopt();
+        int slot = number - 1;
+        if (slot < 0 || slot >= slots.length || !hasSession(slot) || slot == focused) return false;
+        focus(slot);
+        return true;
+    }
+
+    private boolean focusNextOccupied(int step) {
+        for (int i = 0; i < slots.length; i++) {
+            int next = Math.floorMod(focused + step * (i + 1), slots.length);
+            if (hasSession(next)) {
+                focus(next);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Finds the pane nearest to the focused pane in {@code direction}, or null when
+     * no pane lies strictly in that direction (there is no wrap-around).
+     */
+    private ClientSession nearest(Direction direction, double cx, double cy, int width, int height) {
+        ClientSession best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (ClientSession session : presentedSessions()) {
+            if (session.slot == focused) continue;
+            int[] bounds = paneBounds(session.slot, width, height);
+            double px = bounds[0] + bounds[2] / 2.0;
+            double py = bounds[1] + bounds[3] / 2.0;
+            double dx = px - cx;
+            double dy = py - cy;
+            boolean inDirection = switch (direction) {
+                case LEFT -> dx < -0.5;
+                case RIGHT -> dx > 0.5;
+                case UP -> dy < -0.5;
+                case DOWN -> dy > 0.5;
+            };
+            if (!inDirection) continue;
+            double primary = switch (direction) {
+                case LEFT -> -dx;
+                case RIGHT -> dx;
+                case UP -> -dy;
+                case DOWN -> dy;
+            };
+            double secondary = switch (direction) {
+                case LEFT, RIGHT -> Math.abs(dy);
+                case UP, DOWN -> Math.abs(dx);
+            };
+            double score = primary * 1000.0 + secondary;
+            if (score < bestScore) {
+                bestScore = score;
+                best = session;
+            }
+        }
+        return best;
+    }
+
     public void setKeepRunning(int slot, boolean value) {
         checkThread();
         adopt();
@@ -232,26 +356,63 @@ public final class SessionManager {
         return layoutMode;
     }
 
-    public boolean showBorders() {
-        return showBorders;
-    }
-
-    public void setShowBorders(boolean value) {
-        showBorders = value;
-        if (config != null) {
-            config.showBorders = value;
-            config.save();
-        }
-    }
-
     public int borderThickness() {
         return borderThickness;
     }
 
     public void setBorderThickness(int value) {
-        borderThickness = Math.clamp(value, 1, 8);
+        borderThickness = Math.clamp(value, 0, 8);
         if (config != null) {
             config.borderThickness = borderThickness;
+            config.save();
+        }
+    }
+
+    public boolean showInfoPanel() {
+        return showInfoPanel;
+    }
+
+    public void setShowInfoPanel(boolean value) {
+        showInfoPanel = value;
+        if (config != null) {
+            config.showInfoPanel = value;
+            config.save();
+        }
+    }
+
+    public boolean compactInfoPanel() {
+        return compactInfoPanel;
+    }
+
+    public void setCompactInfoPanel(boolean value) {
+        compactInfoPanel = value;
+        if (config != null) {
+            config.compactInfoPanel = value;
+            config.save();
+        }
+    }
+
+    public int dimAmount() {
+        return dimAmount;
+    }
+
+    public void setDimAmount(int value) {
+        dimAmount = Math.clamp(value, 0, 100);
+        if (config != null) {
+            config.dimAmount = dimAmount;
+            config.save();
+        }
+    }
+
+    /** GLFW modifier mask required for focus binding {@code index} (0 = none). */
+    public int focusModifierMask(int index) {
+        return focusModifiers[index];
+    }
+
+    public void setFocusModifier(int index, int mask) {
+        focusModifiers[index] = mask;
+        if (config != null) {
+            config.focusModifiers[index] = mask;
             config.save();
         }
     }
@@ -473,7 +634,7 @@ public final class SessionManager {
             long interval = 1_000_000_000L / session.inactiveFps;
             if (now - session.lastRender < interval) continue;
             session.lastRender = now;
-            inContext(session, this::renderActiveOffscreen);
+            inContext(session, () -> renderActiveOffscreen(session));
             session.renderedFrames++;
         }
     }
@@ -669,7 +830,7 @@ public final class SessionManager {
         }
     }
 
-    private void renderActiveOffscreen() {
+    private void renderActiveOffscreen(ClientSession session) {
         Minecraft client = mc();
         DeltaTracker deltaTracker = client.getDeltaTracker();
         client.gui.update();
@@ -678,9 +839,57 @@ public final class SessionManager {
         client.gameRenderer.extract(deltaTracker, true);
         RenderSystem.executePendingTasks();
         client.gameRenderer.render(deltaTracker, true);
+        if (dimAmount > 0) dimSession(session);
         RenderSystem.getDevice().createCommandEncoder().submit();
         RenderSystem.getDynamicUniforms().reset();
         client.levelRenderer.endFrame();
+    }
+
+    /** Desaturates an inactive session's finished pane by the configured amount. */
+    private void dimSession(ClientSession session) {
+        PostChain chain = dimChain();
+        if (chain != null) {
+            chain.process(session.renderer.mainRenderTarget(),
+                    ((GameRendererAccessor) session.renderer).aero$resourcePool());
+        }
+    }
+
+    /**
+     * Returns a post chain whose desaturate pass blends toward luminance by
+     * {@link #dimAmount}. Post chains bake uniform values at build time, so the
+     * chain is rebuilt lazily whenever the amount changes (at most once per
+     * inactive offscreen render).
+     */
+    private PostChain dimChain() {
+        if (cachedDimAmount == dimAmount) return dimChain;
+        if (dimProjection == null) {
+            dimProjection = new Projection();
+            dimProjection.setupOrtho(0.1F, 1000.0F, 1.0F, 1.0F, false);
+            dimProjectionBuffer = new ProjectionMatrixBuffer("aero_switch_dim");
+        }
+        float mix = dimAmount / 100.0F;
+        PostChainConfig config = new PostChainConfig(
+                Map.of(DIM_SWAP_TARGET, new PostChainConfig.InternalTarget(Optional.empty(), Optional.empty(), false, 0)),
+                List.of(
+                        new PostChainConfig.Pass(SCREENQUAD_SHADER, DESATURATE_SHADER,
+                                List.of(new PostChainConfig.TargetInput("In", PostChain.MAIN_TARGET_ID, false, false)),
+                                DIM_SWAP_TARGET,
+                                Map.of("DesaturateConfig", List.of(new UniformValue.FloatUniform(mix)))),
+                        new PostChainConfig.Pass(SCREENQUAD_SHADER, BLIT_SHADER,
+                                List.of(new PostChainConfig.TargetInput("In", DIM_SWAP_TARGET, false, false)),
+                                PostChain.MAIN_TARGET_ID,
+                                Map.of("BlitConfig", List.of(new UniformValue.Vec4Uniform(new Vector4f(1, 1, 1, 1)))))));
+        if (dimChain != null) dimChain.close();
+        dimChain = null;
+        try {
+            dimChain = PostChain.load(config, mc().getTextureManager(),
+                    Set.of(PostChain.MAIN_TARGET_ID), PostChain.MAIN_TARGET_ID,
+                    dimProjection, dimProjectionBuffer);
+        } catch (Exception error) {
+            AeroSwitchClient.LOGGER.error("Could not build Aero Switch dim post chain", error);
+        }
+        cachedDimAmount = dimAmount;
+        return dimChain;
     }
 
     private void tickSession(ClientSession session) {
@@ -768,6 +977,14 @@ public final class SessionManager {
         if (compositeTarget != null) {
             compositeTarget.destroyBuffers();
             compositeTarget = null;
+        }
+        if (dimChain != null) {
+            dimChain.close();
+            dimChain = null;
+        }
+        if (dimProjectionBuffer != null) {
+            dimProjectionBuffer.close();
+            dimProjectionBuffer = null;
         }
     }
     private boolean shouldPause(ClientSession session) {

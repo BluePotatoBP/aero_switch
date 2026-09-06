@@ -17,6 +17,7 @@
     "SessionMinecraftMixin",
     "SessionCameraMixin",
     "SessionGameRendererMixin",
+    "GameRendererAccessor",
     "SessionGuiGraphicsMixin",
     "SessionMouseMixin",
     "SessionKeyboardMixin",

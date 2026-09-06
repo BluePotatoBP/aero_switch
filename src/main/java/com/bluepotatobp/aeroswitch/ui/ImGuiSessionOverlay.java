@@ -3,18 +3,22 @@ package com.bluepotatobp.aeroswitch.ui;
 import com.bluepotatobp.aeroswitch.AeroSwitchClient;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
 import imgui.ImDrawList;
+import imgui.ImFont;
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
 import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.ImGuiStyle;
 import imgui.flag.ImDrawFlags;
+import imgui.flag.ImGuiChildFlags;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiCond;
+import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiTableFlags;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.gl3.ImGuiImplGl3;
 import imgui.glfw.ImGuiImplGlfw;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
@@ -27,6 +31,7 @@ public final class ImGuiSessionOverlay {
     private static boolean initialized;
     private static boolean unavailable;
     private static float guiScale;
+    private static ImFont headingFont;
 
     private ImGuiSessionOverlay() { }
 
@@ -40,9 +45,11 @@ public final class ImGuiSessionOverlay {
             GLFW.newFrame();
             GL3.newFrame();
             ImGui.newFrame();
+            boolean managerOpen = manager.focusedScreen() instanceof SessionScreen;
             if (manager.sessionCount() > 0) drawStatusStrip(manager);
             drawPaneBorders(manager);
-            if (manager.focusedScreen() instanceof SessionScreen) drawManager(client, manager);
+            if (managerOpen) drawManager(client, manager);
+            else SessionControls.cancelRebind();
             ImGui.render();
             GL3.renderDrawData(ImGui.getDrawData());
         } catch (Throwable error) {
@@ -83,19 +90,49 @@ public final class ImGuiSessionOverlay {
 
     /**
      * Rasterizes the default font at the physical pixel size for the current GUI
-     * scale. Scaling a 13px atlas up with {@code FontGlobalScale} is what made the
-     * overlay blurry; rebuilding at {@code BASE_FONT_SIZE * scale} keeps the same
-     * apparent size while producing crisp glyphs.
+     * scale, plus a crisp heading font sized so "EMPTY SLOT" spans the two
+     * Singleplayer/Multiplayer buttons. Scaling an atlas up is what made the
+     * overlay blurry; rebuilding at the exact pixel size keeps glyphs crisp.
      */
     private static void reloadFont(ImGuiIO io, float scale) {
         ImFontAtlas atlas = io.getFonts();
+
+        // First pass: base font only, to measure the sizes we need.
         atlas.clear();
-        ImFontConfig config = new ImFontConfig();
-        config.setSizePixels(BASE_FONT_SIZE * scale);
-        config.setOversampleH(1);
-        config.setOversampleV(1);
-        atlas.addFontDefault(config);
-        config.destroy();
+        ImFontConfig probe = new ImFontConfig();
+        probe.setSizePixels(BASE_FONT_SIZE * scale);
+        probe.setOversampleH(1);
+        probe.setOversampleV(1);
+        ImFont baseFont = atlas.addFontDefault(probe);
+        probe.destroy();
+        atlas.build();
+
+        float baseSize = BASE_FONT_SIZE * scale;
+        float framePad = ImGui.getStyle().getFramePaddingX() * 2.0F;
+        float spacing = ImGui.getStyle().getItemSpacingX();
+        float labelWidth = Math.max(
+                baseFont.calcTextSizeAX(baseSize, Float.MAX_VALUE, -1.0F, "Singleplayer"),
+                baseFont.calcTextSizeAX(baseSize, Float.MAX_VALUE, -1.0F, "Multiplayer"));
+        float buttonsWidth = (labelWidth + framePad) * 2.0F + spacing;
+        float headingBaseWidth = baseFont.calcTextSizeAX(baseSize, Float.MAX_VALUE, -1.0F, "EMPTY SLOT");
+        int headingSize = Math.max(1, Math.round(baseSize * (buttonsWidth / headingBaseWidth)));
+
+        // Second pass: base font + crisp heading font.
+        atlas.clear();
+        ImFontConfig baseConfig = new ImFontConfig();
+        baseConfig.setSizePixels(BASE_FONT_SIZE * scale);
+        baseConfig.setOversampleH(1);
+        baseConfig.setOversampleV(1);
+        atlas.addFontDefault(baseConfig);
+        baseConfig.destroy();
+
+        ImFontConfig headingConfig = new ImFontConfig();
+        headingConfig.setSizePixels(headingSize);
+        headingConfig.setOversampleH(1);
+        headingConfig.setOversampleV(1);
+        headingFont = atlas.addFontDefault(headingConfig);
+        headingConfig.destroy();
+
         atlas.build();
         if (initialized) {
             GL3.destroyFontsTexture();
@@ -128,7 +165,29 @@ public final class ImGuiSessionOverlay {
     }
 
     private static void drawStatusStrip(SessionManager manager) {
-        ImGui.setNextWindowPos(12.0F * guiScale, 12.0F * guiScale, ImGuiCond.Always);
+        if (!manager.showInfoPanel()) return;
+        ImGuiIO io = ImGui.getIO();
+        int[] bounds = manager.paneBounds(manager.focusedSlot(),
+                (int) io.getDisplaySizeX(), (int) io.getDisplaySizeY());
+        float x = bounds[0] + 12.0F * guiScale;
+        float y = bounds[1] + 12.0F * guiScale;
+
+        if (manager.compactInfoPanel()) {
+            // Bare session number with a drop shadow so it stays legible on any backdrop.
+            ImDrawList draw = ImGui.getBackgroundDrawList();
+            String number = Integer.toString(manager.focusedSlot() + 1);
+            float offset = Math.max(1.0F, guiScale);
+            int shadow = 0xAA000000;
+            int fill = 0xFFFFFFFF;
+            draw.addText(x + offset, y, shadow, number);
+            draw.addText(x - offset, y, shadow, number);
+            draw.addText(x, y + offset, shadow, number);
+            draw.addText(x, y - offset, shadow, number);
+            draw.addText(x, y, fill, number);
+            return;
+        }
+
+        ImGui.setNextWindowPos(x, y, ImGuiCond.Always);
         ImGui.setNextWindowBgAlpha(0.82F);
         int flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize
                 | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoInputs;
@@ -142,7 +201,7 @@ public final class ImGuiSessionOverlay {
     }
 
     private static void drawPaneBorders(SessionManager manager) {
-        if (!manager.isSplitPresented() || !manager.showBorders()) return;
+        if (!manager.isSplitPresented() || manager.borderThickness() <= 0) return;
         ImGuiIO io = ImGui.getIO();
         int width = (int) io.getDisplaySizeX();
         int height = (int) io.getDisplaySizeY();
@@ -177,72 +236,152 @@ public final class ImGuiSessionOverlay {
         ImGui.setNextWindowPos(io.getDisplaySizeX() / 2.0F, io.getDisplaySizeY() / 2.0F,
                 ImGuiCond.Always, 0.5F, 0.5F);
         ImGui.setNextWindowSize(panelWidth, panelHeight, ImGuiCond.Always);
-        int flags = ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize
-                | ImGuiWindowFlags.NoSavedSettings;
+        int flags = ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoSavedSettings;
         if (ImGui.begin("Aero Switch", flags)) {
-            ImGui.textColored(0.41F, 0.80F, 0.69F, 1.0F, "MULTI-SESSION CONTROL DECK");
-            ImGui.text("Choose how occupied sessions are presented and which one owns input.");
-            ImGui.separatorText("Layout");
-            int count = manager.sessionCount();
-            layoutButton(client, manager, SessionManager.LayoutMode.TABS, "Tabs");
-            ImGui.sameLine();
-            layoutButton(client, manager, SessionManager.LayoutMode.SPLIT_VERTICAL, "Side by side");
-            if (count >= 4) {
-                ImGui.sameLine();
-                layoutButton(client, manager, SessionManager.LayoutMode.GRID, "Four way");
-            }
-            if (count == 3) {
-                ImGui.sameLine();
-                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_LEFT, "1|2");
-                ImGui.sameLine();
-                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_RIGHT, "2|1");
-                ImGui.sameLine();
-                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_TOP, "1/2");
-                ImGui.sameLine();
-                layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_BOTTOM, "2/1");
-            }
-
-            ImGui.separatorText("Pane borders");
-            boolean showBorders = manager.showBorders();
-            if (ImGui.checkbox("Show pane borders", showBorders)) {
-                manager.setShowBorders(!showBorders);
-            }
-            int[] borderThickness = {manager.borderThickness()};
-            ImGui.setNextItemWidth(Math.min(260.0F * guiScale, ImGui.getContentRegionAvailX()));
-            if (ImGui.sliderInt("Border thickness##border", borderThickness, 1, 8, "%d px")) {
-                manager.setBorderThickness(borderThickness[0]);
-            }
-
-            ImGui.separatorText("Sessions");
-            if (ImGui.beginTable("session_grid", 2, ImGuiTableFlags.SizingStretchSame)) {
-                for (int slot = 0; slot < manager.maxSessions(); slot++) {
-                    ImGui.tableNextColumn();
-                    drawSession(client, manager, slot);
+            if (ImGui.beginTabBar("aero_switch_tabs")) {
+                if (ImGui.beginTabItem("Sessions")) {
+                    drawSessionsTab(client, manager);
+                    ImGui.endTabItem();
                 }
-                ImGui.endTable();
+                if (ImGui.beginTabItem("Keybinds")) {
+                    drawKeybinds(manager);
+                    ImGui.endTabItem();
+                }
+                ImGui.endTabBar();
             }
 
             ImGui.separator();
-            boolean full = manager.sessionCount() >= manager.maxSessions();
-            ImGui.beginDisabled(full);
-            if (ImGui.button("Open local world", 170.0F * guiScale, 32.0F * guiScale)) {
+            float doneWidth = 100.0F * guiScale;
+            ImGui.sameLine(ImGui.getContentRegionAvailX() - doneWidth);
+            if (ImGui.button("Done", doneWidth, 32.0F * guiScale)) {
                 defer(client, () -> {
-                    manager.prepareNewSession();
-                    client.gui.setScreen(new SelectWorldScreen(new SessionScreen()));
+                    SessionControls.cancelRebind();
+                    client.gui.setScreen(null);
                 });
             }
-            ImGui.sameLine();
-            if (ImGui.button("Join server", 170.0F * guiScale, 32.0F * guiScale)) {
-                defer(client, () -> {
-                    manager.prepareNewSession();
-                    client.gui.setScreen(new JoinMultiplayerScreen(new SessionScreen()));
-                });
-            }
-            ImGui.endDisabled();
-            ImGui.sameLine();
-            if (ImGui.button("Done", 100.0F * guiScale, 32.0F * guiScale)) defer(client, () -> client.gui.setScreen(null));
         }
         ImGui.end();
+    }
+
+    /** Centered section heading with a rule on each side ("--- Label ---"). */
+    private static void sectionHeader(String label) {
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float avail = ImGui.getContentRegionAvailX();
+        float textWidth = ImGui.calcTextSize(label).x;
+        float x0 = ImGui.getCursorScreenPosX();
+        float lineY = ImGui.getCursorScreenPosY() + ImGui.getTextLineHeight() * 0.5F;
+        float gap = 10.0F * guiScale;
+        int lineColor = ImGui.getColorU32(ImGuiCol.Separator);
+        float textLeft = x0 + (avail - textWidth) / 2.0F;
+        float textRight = textLeft + textWidth;
+        if (textLeft - gap > x0) draw.addLine(x0, lineY, textLeft - gap, lineY, lineColor, guiScale);
+        if (textRight + gap < x0 + avail) draw.addLine(textRight + gap, lineY, x0 + avail, lineY, lineColor, guiScale);
+        ImGui.setCursorPosX((avail - textWidth) / 2.0F);
+        ImGui.text(label);
+        ImGui.newLine();
+        ImGui.dummy(0.0F, 2.0F * guiScale);
+    }
+
+    private static void drawSessionsTab(Minecraft client, SessionManager manager) {
+        sectionHeader("Layout");
+        int count = manager.sessionCount();
+        layoutButton(client, manager, SessionManager.LayoutMode.TABS, "Tabs");
+        ImGui.sameLine();
+        layoutButton(client, manager, SessionManager.LayoutMode.SPLIT_VERTICAL, "Side by side");
+        if (count >= 4) {
+            ImGui.sameLine();
+            layoutButton(client, manager, SessionManager.LayoutMode.GRID, "Four way");
+        }
+        if (count == 3) {
+            ImGui.sameLine();
+            layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_LEFT, "1|2");
+            ImGui.sameLine();
+            layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_RIGHT, "2|1");
+            ImGui.sameLine();
+            layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_TOP, "1/2");
+            ImGui.sameLine();
+            layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_BOTTOM, "2/1");
+        }
+
+        sectionHeader("Info panel");
+        boolean showInfo = manager.showInfoPanel();
+        if (ImGui.checkbox("Show info panel", showInfo)) {
+            manager.setShowInfoPanel(!showInfo);
+        }
+        ImGui.beginDisabled(!showInfo);
+        boolean compact = manager.compactInfoPanel();
+        if (ImGui.checkbox("Compact (session number only)", compact)) {
+            manager.setCompactInfoPanel(!compact);
+        }
+        ImGui.endDisabled();
+
+        sectionHeader("Sessions");
+        if (ImGui.beginTable("session_settings", 2, ImGuiTableFlags.SizingStretchSame)) {
+            ImGui.tableNextRow();
+            ImGui.tableSetColumnIndex(0);
+            ImGui.text("Dim inactive instances");
+            int[] dim = {manager.dimAmount()};
+            ImGui.setNextItemWidth(ImGui.getContentRegionAvailX());
+            if (ImGui.sliderInt("##dim", dim, 0, 100, "%d%%")) {
+                manager.setDimAmount(dim[0]);
+            }
+
+            ImGui.tableSetColumnIndex(1);
+            ImGui.text("Pane border thickness");
+            int[] borderThickness = {manager.borderThickness()};
+            ImGui.setNextItemWidth(ImGui.getContentRegionAvailX());
+            if (ImGui.sliderInt("##border", borderThickness, 0, 8, "%d px")) {
+                manager.setBorderThickness(borderThickness[0]);
+            }
+            ImGui.endTable();
+        }
+        if (ImGui.beginTable("session_grid", 2, ImGuiTableFlags.SizingStretchSame)) {
+            for (int slot = 0; slot < manager.maxSessions(); slot++) {
+                ImGui.tableNextColumn();
+                drawSession(client, manager, slot);
+            }
+            ImGui.endTable();
+        }
+    }
+
+    private static void drawKeybinds(SessionManager manager) {
+        ImGui.text("Focus switching (hold the modifier and press the bound key):");
+        ImGui.dummy(0.0F, 4.0F * guiScale);
+        KeyMapping[] bindings = SessionControls.focusBindings();
+        for (int i = 0; i < bindings.length; i++) {
+            KeyMapping mapping = bindings[i];
+            String name = Component.translatable(mapping.getName()).getString();
+            String key = mapping.getTranslatedKeyMessage().getString();
+            boolean awaiting = SessionControls.rebinding() == mapping;
+            ImGui.text(name);
+            ImGui.sameLine(230.0F * guiScale);
+            if (awaiting) {
+                ImGui.pushStyleColor(ImGuiCol.Button, 104, 203, 175, 255);
+            }
+            if (ImGui.button((awaiting ? "Press a key..." : key) + "##bind_" + mapping.getName(),
+                    170.0F * guiScale, 0.0F)) {
+                SessionControls.beginRebind(mapping);
+            }
+            if (awaiting) {
+                ImGui.popStyleColor();
+            }
+            ImGui.sameLine();
+            ImGui.setNextItemWidth(90.0F * guiScale);
+            SessionControls.Modifier[] modifiers = SessionControls.Modifier.values();
+            int[] current = {SessionControls.Modifier.fromMask(manager.focusModifierMask(i)).ordinal()};
+            if (ImGui.beginCombo("##mod_" + i, modifiers[current[0]].label)) {
+                for (int n = 0; n < modifiers.length; n++) {
+                    boolean selected = current[0] == n;
+                    if (ImGui.selectable(modifiers[n].label, selected)) {
+                        manager.setFocusModifier(i, modifiers[n].mask);
+                    }
+                    if (selected) ImGui.setItemDefaultFocus();
+                }
+                ImGui.endCombo();
+            }
+        }
+        ImGui.dummy(0.0F, 4.0F * guiScale);
+        ImGui.textDisabled("Click a key to rebind it. Esc clears a binding. Changes also appear in Options > Controls.");
     }
 
     private static void layoutButton(Minecraft client, SessionManager manager, SessionManager.LayoutMode mode, String label) {
@@ -316,50 +455,122 @@ public final class ImGuiSessionOverlay {
         draw.addRect(x0, y0, x1, y1, line, 0.0F, 0, Math.max(1.0F, guiScale));
     }
 
+    /**
+     * Uniform card height so every card in a row reaches the same bottom edge (no
+     * ragged whitespace when one session is expanded). Sized for the tallest card:
+     * an occupied session with its status line, button row, checkbox and slider.
+     */
+    private static float sessionCardHeight() {
+        float line = ImGui.getTextLineHeight();
+        float frame = ImGui.getFrameHeight();
+        float gap = ImGui.getStyle().getItemSpacingY();
+        return 24.0F * guiScale         // child top + bottom padding
+                + line + gap * 2.0F     // separator header
+                + line + gap            // status line
+                + 28.0F * guiScale + gap // button row
+                + frame + gap           // checkbox
+                + frame + gap           // slider
+                + 10.0F * guiScale;     // safety margin
+    }
+
     private static void drawSession(Minecraft client, SessionManager manager, int slot) {
+        ImGui.pushStyleColor(ImGuiCol.ChildBg, 0, 0, 0, 51);
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 14.0F * guiScale, 12.0F * guiScale);
+        ImGui.beginChild("##card_" + slot, ImGui.getContentRegionAvailX(), sessionCardHeight(),
+                ImGuiChildFlags.None, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
         ImGui.separatorText("Session " + (slot + 1));
         if (!manager.hasSession(slot)) {
-            ImGui.textDisabled("Empty slot");
-            return;
+            drawEmptySlot(client, manager);
+        } else {
+            boolean focused = manager.focusedSlot() == slot;
+            String kind = manager.isLocalSession(slot) ? "Local world" : "Remote server";
+            ImGui.textColored(focused ? 0.41F : 0.72F, focused ? 0.80F : 0.72F,
+                    focused ? 0.69F : 0.72F, 1.0F, focused ? kind + " | FOCUSED" : kind + " | INACTIVE");
+
+            float spacing = ImGui.getStyle().getItemSpacingX();
+            float buttonWidth = (ImGui.getContentRegionAvailX() - spacing) / 2.0F;
+            ImGui.beginDisabled(focused);
+            if (ImGui.button("Focus##" + slot, buttonWidth, 28.0F * guiScale)) {
+                defer(client, () -> {
+                    manager.focus(slot);
+                    client.gui.setScreen(null);
+                });
+            }
+            ImGui.endDisabled();
+            ImGui.sameLine();
+            if (ImGui.button("Save / close##" + slot, buttonWidth, 28.0F * guiScale)) {
+                defer(client, () -> {
+                    manager.close(slot);
+                    client.gui.setScreen(new SessionScreen());
+                });
+            }
+
+            if (manager.isLocalSession(slot)) {
+                boolean keepRunning = manager.keepRunning(slot);
+                if (ImGui.checkbox("Keep running while inactive##" + slot, keepRunning)) {
+                    manager.setKeepRunning(slot, !keepRunning);
+                }
+            } else {
+                ImGui.textDisabled("Remote networking always continues.");
+            }
+
+            int[] fps = {manager.inactiveFps(slot)};
+            ImGui.setNextItemWidth(Math.max(140.0F * guiScale, ImGui.getContentRegionAvailX()));
+            if (ImGui.sliderInt("Inactive visible FPS##" + slot, fps, 1, 60, "%d FPS")) {
+                manager.setInactiveFps(slot, fps[0]);
+            }
         }
+        ImGui.endChild();
+        ImGui.popStyleVar();
+        ImGui.popStyleColor();
+    }
 
-        boolean focused = manager.focusedSlot() == slot;
-        String kind = manager.isLocalSession(slot) ? "Local world" : "Remote server";
-        ImGui.textColored(focused ? 0.41F : 0.72F, focused ? 0.80F : 0.72F,
-                focused ? 0.69F : 0.72F, 1.0F, focused ? kind + " | FOCUSED" : kind + " | INACTIVE");
-
+    /** Empty-slot card: crisp "EMPTY SLOT" heading over centered Singleplayer/Multiplayer buttons. */
+    private static void drawEmptySlot(Minecraft client, SessionManager manager) {
+        boolean full = manager.sessionCount() >= manager.maxSessions();
         float spacing = ImGui.getStyle().getItemSpacingX();
-        float buttonWidth = (ImGui.getContentRegionAvailX() - spacing) / 2.0F;
-        ImGui.beginDisabled(focused);
-        if (ImGui.button("Focus##" + slot, buttonWidth, 28.0F * guiScale)) {
+
+        // Text-sized buttons.
+        float labelWidth = Math.max(ImGui.calcTextSize("Singleplayer").x, ImGui.calcTextSize("Multiplayer").x);
+        float buttonWidth = labelWidth + ImGui.getStyle().getFramePaddingX() * 2.0F;
+        float buttonsWidth = buttonWidth * 2.0F + spacing;
+
+        float gap = 6.0F * guiScale;
+        float buttonHeight = 28.0F * guiScale;
+        float headingHeight = headingFont.getAscent();
+        float blockHeight = headingHeight + gap + buttonHeight;
+
+        // Center the whole block in the remaining card area.
+        float availX = ImGui.getContentRegionAvailX();
+        float availY = ImGui.getContentRegionAvailY();
+        ImGui.setCursorPosY(ImGui.getCursorPosY() + Math.max(0.0F, (availY - blockHeight) / 2.0F));
+
+        // Crisp heading, rasterized at its own size (never scaled).
+        ImGui.pushFont(headingFont);
+        float headingWidth = ImGui.calcTextSize("EMPTY SLOT").x;
+        ImGui.setCursorPosX((availX - headingWidth) / 2.0F);
+        ImGui.textColored(0.75F, 0.78F, 0.81F, 1.0F, "EMPTY SLOT");
+        ImGui.popFont();
+
+        // Advance below the heading and center the button row.
+        ImGui.setCursorPosY(ImGui.getCursorPosY() + headingHeight + gap);
+        ImGui.setCursorPosX((availX - buttonsWidth) / 2.0F);
+
+        ImGui.beginDisabled(full);
+        if (ImGui.button("Singleplayer", buttonWidth, buttonHeight)) {
             defer(client, () -> {
-                manager.focus(slot);
-                client.gui.setScreen(null);
+                manager.prepareNewSession();
+                client.gui.setScreen(new SelectWorldScreen(new SessionScreen()));
+            });
+        }
+        ImGui.sameLine();
+        if (ImGui.button("Multiplayer", buttonWidth, buttonHeight)) {
+            defer(client, () -> {
+                manager.prepareNewSession();
+                client.gui.setScreen(new JoinMultiplayerScreen(new SessionScreen()));
             });
         }
         ImGui.endDisabled();
-        ImGui.sameLine();
-        if (ImGui.button("Save / close##" + slot, buttonWidth, 28.0F * guiScale)) {
-            defer(client, () -> {
-                manager.close(slot);
-                client.gui.setScreen(new SessionScreen());
-            });
-        }
-
-        if (manager.isLocalSession(slot)) {
-            boolean keepRunning = manager.keepRunning(slot);
-            if (ImGui.checkbox("Keep running while inactive##" + slot, keepRunning)) {
-                manager.setKeepRunning(slot, !keepRunning);
-            }
-        } else {
-            ImGui.textDisabled("Remote networking always continues.");
-        }
-
-        int[] fps = {manager.inactiveFps(slot)};
-        ImGui.setNextItemWidth(Math.max(140.0F * guiScale, ImGui.getContentRegionAvailX()));
-        if (ImGui.sliderInt("Inactive visible FPS##" + slot, fps, 1, 60, "%d FPS")) {
-            manager.setInactiveFps(slot, fps[0]);
-        }
     }
 
     private static String layoutName(SessionManager.LayoutMode mode) {
