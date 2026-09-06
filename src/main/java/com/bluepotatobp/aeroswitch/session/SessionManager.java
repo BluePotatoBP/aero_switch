@@ -1,6 +1,8 @@
 package com.bluepotatobp.aeroswitch.session;
 
+import com.bluepotatobp.aeroswitch.config.AeroSwitchConfig;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
+import com.bluepotatobp.aeroswitch.ui.SessionScreen;
 import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.opengl.GlTexture;
@@ -72,6 +74,18 @@ public final class SessionManager {
     private long lastService;
     private LayoutMode layoutMode = LayoutMode.TABS;
     private MainTarget compositeTarget;
+    private final AeroSwitchConfig config;
+    private boolean showBorders = true;
+    private int borderThickness = 2;
+    private int lastSizedCount = -1;
+
+    private SessionManager() {
+        config = enabled ? AeroSwitchConfig.load() : null;
+        if (config != null) {
+            showBorders = config.showBorders;
+            borderThickness = config.borderThickness;
+        }
+    }
 
     public static SessionManager get() { return INSTANCE; }
     public boolean isEnabled() { return enabled; }
@@ -147,6 +161,7 @@ public final class SessionManager {
             slots[target] = next;
         }
         KeyMapping.releaseAll();
+        if (mc().gui.screen() instanceof SessionScreen) mc().gui.setScreen(null);
         active = next;
         focused = target;
         next.install(mc());
@@ -163,6 +178,7 @@ public final class SessionManager {
         if (scoped != 0) throw new IllegalStateException("Cannot change focus inside a scoped callback");
         if (target == active) return;
         KeyMapping.releaseAll();
+        if (mc().gui.screen() instanceof SessionScreen) mc().gui.setScreen(null);
         active.capture(mc());
         active = target;
         focused = slot;
@@ -216,6 +232,30 @@ public final class SessionManager {
         return layoutMode;
     }
 
+    public boolean showBorders() {
+        return showBorders;
+    }
+
+    public void setShowBorders(boolean value) {
+        showBorders = value;
+        if (config != null) {
+            config.showBorders = value;
+            config.save();
+        }
+    }
+
+    public int borderThickness() {
+        return borderThickness;
+    }
+
+    public void setBorderThickness(int value) {
+        borderThickness = Math.clamp(value, 1, 8);
+        if (config != null) {
+            config.borderThickness = borderThickness;
+            config.save();
+        }
+    }
+
     public void setLayoutMode(LayoutMode value) {
         checkThread();
         if (!enabled) return;
@@ -224,6 +264,7 @@ public final class SessionManager {
         layoutMode = value;
         updateVisibility();
         resizeScreens();
+        lastSizedCount = sessionCount();
     }
 
     /** Re-lays out every open screen for its new pane size after a layout change. */
@@ -244,6 +285,14 @@ public final class SessionManager {
                 });
             }
         }
+    }
+
+    /** Re-lays out every open screen when the number of occupied sessions changes. */
+    private void resizeScreensIfCountChanged() {
+        int count = sessionCount();
+        if (count == lastSizedCount) return;
+        lastSizedCount = count;
+        resizeScreens();
     }
 
     public Screen focusedScreen() {
@@ -393,6 +442,7 @@ public final class SessionManager {
     public void tickBackground() {
         if (!enabled || servicing) return;
         adopt();
+        if (!closing) resizeScreensIfCountChanged();
         long now = Util.getNanos();
         if (lastService == 0) lastService = now - 50_000_000L;
         int ticks = (int) Math.min(10, (now - lastService) / 50_000_000L);

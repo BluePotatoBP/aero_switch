@@ -2,14 +2,16 @@ package com.bluepotatobp.aeroswitch.ui;
 
 import com.bluepotatobp.aeroswitch.AeroSwitchClient;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
+import imgui.ImDrawList;
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
 import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.ImGuiStyle;
-import imgui.ImDrawList;
+import imgui.flag.ImDrawFlags;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiCond;
+import imgui.flag.ImGuiTableFlags;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.gl3.ImGuiImplGl3;
 import imgui.glfw.ImGuiImplGlfw;
@@ -140,36 +142,38 @@ public final class ImGuiSessionOverlay {
     }
 
     private static void drawPaneBorders(SessionManager manager) {
-        if (!manager.isSplitPresented()) return;
+        if (!manager.isSplitPresented() || !manager.showBorders()) return;
         ImGuiIO io = ImGui.getIO();
         int width = (int) io.getDisplaySizeX();
         int height = (int) io.getDisplaySizeY();
-        float thickness = Math.max(2.0F, 2.0F * guiScale);
-        float inset = thickness / 2.0F;
+        float thickness = Math.max(1.0F, manager.borderThickness() * guiScale);
         int activeColor = 0xFFAFCB68;
         int inactiveColor = 0xFF5C534B;
         ImDrawList draw = ImGui.getBackgroundDrawList();
 
-        for (int slot = 0; slot < manager.maxSessions(); slot++) {
-            if (!manager.hasSession(slot)) continue;
-            int[] bounds = manager.paneBounds(slot, width, height);
-            if (bounds[2] <= 0 || bounds[3] <= 0) continue;
-            int color = manager.focusedSlot() == slot ? activeColor : inactiveColor;
-            float x0 = bounds[0] + inset;
-            float y0 = bounds[1] + inset;
-            float x1 = bounds[0] + bounds[2] - inset;
-            float y1 = bounds[1] + bounds[3] - inset;
-            draw.addLine(x0, y0, x1, y0, color, thickness);
-            draw.addLine(x0, y1, x1, y1, color, thickness);
-            draw.addLine(x0, y0, x0, y1, color, thickness);
-            draw.addLine(x1, y0, x1, y1, color, thickness);
+        // Two passes: inactive panes first and the focused pane last, so the focused
+        // colour wins where two panes share a divider edge. Each border is a single
+        // closed rectangle stroke (miter-joined corners, no notch) centred on the pane
+        // boundary, so adjacent panes overlap into one solid divider instead of
+        // leaving a transparent strip between their insets.
+        for (int pass = 0; pass < 2; pass++) {
+            for (int slot = 0; slot < manager.maxSessions(); slot++) {
+                if (!manager.hasSession(slot)) continue;
+                boolean focused = manager.focusedSlot() == slot;
+                if (focused != (pass == 1)) continue;
+                int[] bounds = manager.paneBounds(slot, width, height);
+                if (bounds[2] <= 0 || bounds[3] <= 0) continue;
+                int color = focused ? activeColor : inactiveColor;
+                draw.addRect(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3],
+                        color, 0.0F, ImDrawFlags.None, thickness);
+            }
         }
     }
 
     private static void drawManager(Minecraft client, SessionManager manager) {
         ImGuiIO io = ImGui.getIO();
-        float panelWidth = Math.min(600.0F * guiScale, io.getDisplaySizeX() - 24.0F * guiScale);
-        float panelHeight = Math.min(500.0F * guiScale, io.getDisplaySizeY() - 24.0F * guiScale);
+        float panelWidth = io.getDisplaySizeX() * 0.9F;
+        float panelHeight = io.getDisplaySizeY() * 0.8F;
         ImGui.setNextWindowPos(io.getDisplaySizeX() / 2.0F, io.getDisplaySizeY() / 2.0F,
                 ImGuiCond.Always, 0.5F, 0.5F);
         ImGui.setNextWindowSize(panelWidth, panelHeight, ImGuiCond.Always);
@@ -198,7 +202,25 @@ public final class ImGuiSessionOverlay {
                 layoutButton(client, manager, SessionManager.LayoutMode.TRIPLE_BOTTOM, "2/1");
             }
 
-            for (int slot = 0; slot < manager.maxSessions(); slot++) drawSession(client, manager, slot);
+            ImGui.separatorText("Pane borders");
+            boolean showBorders = manager.showBorders();
+            if (ImGui.checkbox("Show pane borders", showBorders)) {
+                manager.setShowBorders(!showBorders);
+            }
+            int[] borderThickness = {manager.borderThickness()};
+            ImGui.setNextItemWidth(Math.min(260.0F * guiScale, ImGui.getContentRegionAvailX()));
+            if (ImGui.sliderInt("Border thickness##border", borderThickness, 1, 8, "%d px")) {
+                manager.setBorderThickness(borderThickness[0]);
+            }
+
+            ImGui.separatorText("Sessions");
+            if (ImGui.beginTable("session_grid", 2, ImGuiTableFlags.SizingStretchSame)) {
+                for (int slot = 0; slot < manager.maxSessions(); slot++) {
+                    ImGui.tableNextColumn();
+                    drawSession(client, manager, slot);
+                }
+                ImGui.endTable();
+            }
 
             ImGui.separator();
             boolean full = manager.sessionCount() >= manager.maxSessions();
@@ -305,9 +327,11 @@ public final class ImGuiSessionOverlay {
         String kind = manager.isLocalSession(slot) ? "Local world" : "Remote server";
         ImGui.textColored(focused ? 0.41F : 0.72F, focused ? 0.80F : 0.72F,
                 focused ? 0.69F : 0.72F, 1.0F, focused ? kind + " | FOCUSED" : kind + " | INACTIVE");
-        ImGui.sameLine(ImGui.getWindowWidth() - 210.0F * guiScale);
+
+        float spacing = ImGui.getStyle().getItemSpacingX();
+        float buttonWidth = (ImGui.getContentRegionAvailX() - spacing) / 2.0F;
         ImGui.beginDisabled(focused);
-        if (ImGui.button("Focus##" + slot, 90.0F * guiScale, 28.0F * guiScale)) {
+        if (ImGui.button("Focus##" + slot, buttonWidth, 28.0F * guiScale)) {
             defer(client, () -> {
                 manager.focus(slot);
                 client.gui.setScreen(null);
@@ -315,7 +339,7 @@ public final class ImGuiSessionOverlay {
         }
         ImGui.endDisabled();
         ImGui.sameLine();
-        if (ImGui.button("Save / close##" + slot, 105.0F * guiScale, 28.0F * guiScale)) {
+        if (ImGui.button("Save / close##" + slot, buttonWidth, 28.0F * guiScale)) {
             defer(client, () -> {
                 manager.close(slot);
                 client.gui.setScreen(new SessionScreen());
@@ -324,15 +348,15 @@ public final class ImGuiSessionOverlay {
 
         if (manager.isLocalSession(slot)) {
             boolean keepRunning = manager.keepRunning(slot);
-            if (ImGui.checkbox("Keep simulation running while inactive##" + slot, keepRunning)) {
+            if (ImGui.checkbox("Keep running while inactive##" + slot, keepRunning)) {
                 manager.setKeepRunning(slot, !keepRunning);
             }
         } else {
-            ImGui.textDisabled("Remote simulation and networking always continue.");
+            ImGui.textDisabled("Remote networking always continues.");
         }
 
         int[] fps = {manager.inactiveFps(slot)};
-        ImGui.setNextItemWidth(Math.max(180.0F * guiScale, ImGui.getContentRegionAvailX()));
+        ImGui.setNextItemWidth(Math.max(140.0F * guiScale, ImGui.getContentRegionAvailX()));
         if (ImGui.sliderInt("Inactive visible FPS##" + slot, fps, 1, 60, "%d FPS")) {
             manager.setInactiveFps(slot, fps[0]);
         }
