@@ -1,6 +1,7 @@
 {
   "required": true,
   "package": "com.bluepotatobp.aeroswitch.mixin",
+  "plugin": "com.bluepotatobp.aeroswitch.mixin.AeroSwitchMixinPlugin",
   "compatibilityLevel": "JAVA_25",
   "client": [
     "MinecraftLifecycleMixin",
@@ -30,7 +31,8 @@
     "SessionServerMixin",
     "SessionDedicatedServerMixin",
     "SessionGuiMixin",
-    "SessionTaskMixin"
+    "SessionTaskMixin",
+    "BetterCloudsCompatMixin"
   ],
   "injectors": {
     "defaultRequire": 1
