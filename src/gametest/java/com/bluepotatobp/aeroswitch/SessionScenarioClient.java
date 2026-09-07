@@ -90,7 +90,7 @@ public final class SessionScenarioClient implements ClientModInitializer {
             switch (phase) {
                 case TITLE -> {
                     if (!(client.gui.screen() instanceof TitleScreen)) return;
-                    require(sessions.isEnabled(), "Experimental engine must be enabled");
+                    require(sessions.isEnabled(), "Session engine must be enabled");
                     transition(Phase.FIRST);
                     open(client, "AeroA");
                 }
@@ -303,7 +303,7 @@ public final class SessionScenarioClient implements ClientModInitializer {
             switch (cPhase) {
                 case TITLE -> {
                     if (!(client.gui.screen() instanceof TitleScreen)) return;
-                    require(sessions.isEnabled(), "Experimental engine must be enabled");
+                    require(sessions.isEnabled(), "Session engine must be enabled");
                     transitionCreative(CreativePhase.FIRST);
                     open(client, "AeroA");
                 }

@@ -46,7 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.joml.Vector4f;
 import org.lwjgl.opengl.GL43C;
 
-/** Experimental, client-thread-confined multi-session scheduler with pane layouts. */
+/** Client-thread-confined multi-session scheduler with pane layouts. */
 public final class SessionManager {
     /** Maximum number of simultaneous sessions. */
     public static final int MAX_SESSIONS = 4;
@@ -82,7 +82,7 @@ public final class SessionManager {
             Identifier.fromNamespaceAndPath("aero_switch", "post/desaturate");
     private static final Identifier BLIT_SHADER =
             Identifier.fromNamespaceAndPath("minecraft", "post/blit");
-    private final boolean enabled = Boolean.getBoolean("aeroSwitch.experimental");
+    private final boolean enabled = Boolean.parseBoolean(System.getProperty("aeroSwitch.experimental", "true"));
     private final ClientSession[] slots = new ClientSession[MAX_SESSIONS];
     private final Map<Connection, ClientSession> connections = new ConcurrentHashMap<>();
     private final Map<PacketListener, ClientSession> listeners = new ConcurrentHashMap<>();
@@ -185,7 +185,7 @@ public final class SessionManager {
 
     public void prepareNewSession() {
         checkThread();
-        if (!enabled) throw new IllegalStateException("Enable -DaeroSwitch.experimental=true");
+        if (!enabled) throw new IllegalStateException("Aero Switch session engine is disabled");
         adopt();
         if (scoped != 0) throw new IllegalStateException("Cannot create a session inside a scoped callback");
         int target = freeSlot();

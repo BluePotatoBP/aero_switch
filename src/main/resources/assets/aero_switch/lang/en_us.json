@@ -11,7 +11,7 @@
   "key.aero_switch.focus_slot_3": "Focus session 3",
   "key.aero_switch.focus_slot_4": "Focus session 4",
   "screen.aero_switch.title": "Aero Switch",
-  "screen.aero_switch.experimental": "Experimental two-session engine",
+  "screen.aero_switch.experimental": "Multi-session engine",
   "screen.aero_switch.remote_notice": "Remote servers always keep running.",
   "screen.aero_switch.tabs": "Tabs",
   "screen.aero_switch.split_vertical": "Side by side",

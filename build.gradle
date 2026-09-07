@@ -53,7 +53,7 @@ loom {
     runs {
         client {
             vmArg "-DaeroSwitch.diagnostics=${providers.gradleProperty('aeroDiagnostics').getOrElse('true')}"
-            vmArg "-DaeroSwitch.experimental=${providers.gradleProperty('aeroExperimental').getOrElse('false')}"
+            vmArg "-DaeroSwitch.experimental=${providers.gradleProperty('aeroExperimental').getOrElse('true')}"
         }
     }
 }

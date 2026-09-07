@@ -15,6 +15,6 @@ public final class AeroSwitchClient implements ClientModInitializer {
     public void onInitializeClient() {
         SessionDiagnostics.initialize();
         SessionControls.initialize();
-        LOGGER.info("Aero Switch initialized; experimental session engine {}", SessionManager.get().isEnabled() ? "enabled" : "disabled");
+        LOGGER.info("Aero Switch initialized; session engine {}", SessionManager.get().isEnabled() ? "enabled" : "disabled");
     }
 }
