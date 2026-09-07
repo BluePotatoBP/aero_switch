@@ -30,16 +30,19 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ServerboundClientTickEndPacket;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.LevelStorageSource;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -110,9 +113,13 @@ public final class SessionManager {
     private ProjectionMatrixBuffer dimProjectionBuffer;
     private final int[] focusModifiers = new int[8];
     private int lastSizedCount = -1;
+    private long bootTimestamp;
+    private int[] layoutIcons;
+    private boolean layoutIconsReady;
 
     private SessionManager() {
         config = enabled ? AeroSwitchConfig.load() : null;
+        bootTimestamp = System.currentTimeMillis();
         for (int i = 0; i < focusModifiers.length; i++) {
             focusModifiers[i] = config != null ? config.focusModifiers[i] : InputConstants.MOD_ALT;
         }
@@ -354,6 +361,71 @@ public final class SessionManager {
 
     public LayoutMode layoutMode() {
         return layoutMode;
+    }
+
+    /**
+     * The artwork image index assigned to a layout mode for this boot, or -1 when
+     * no numbered artwork exists (the overlay then falls back to its diagram).
+     */
+    public int layoutIcon(LayoutMode mode) {
+        int[] icons = layoutIcons();
+        int index = mode.ordinal();
+        return icons != null && index < icons.length ? icons[index] : -1;
+    }
+
+    /** Boot-once random assignment of numbered artwork to layout modes, seeded by the boot timestamp. */
+    private int[] layoutIcons() {
+        if (layoutIconsReady) return layoutIcons;
+        layoutIconsReady = true;
+        LayoutMode[] modes = LayoutMode.values();
+        int[] icons = new int[modes.length];
+        Arrays.fill(icons, -1);
+        if (config == null) {
+            layoutIcons = icons;
+            return layoutIcons;
+        }
+
+        List<Integer> available = listLayoutImages(mc());
+        if (available.isEmpty()) {
+            layoutIcons = icons;
+            return layoutIcons;
+        }
+
+        if (config.lastBoot == bootTimestamp && config.layoutIcons != null
+                && config.layoutIcons.length == modes.length) {
+            icons = config.layoutIcons;
+        } else {
+            List<Integer> shuffled = new ArrayList<>(available);
+            Collections.shuffle(shuffled, new Random(bootTimestamp));
+            for (int i = 0; i < modes.length; i++) {
+                icons[i] = shuffled.get(i % shuffled.size());
+            }
+            config.lastBoot = bootTimestamp;
+            config.layoutIcons = icons;
+            mc().schedule(config::save);
+        }
+        layoutIcons = icons;
+        return layoutIcons;
+    }
+
+    private static List<Integer> listLayoutImages(Minecraft client) {
+        List<Integer> numbers = new ArrayList<>();
+        try {
+            Map<Identifier, Resource> found = client.getResourceManager().listResources("textures/layout",
+                    id -> id.getNamespace().equals("aero_switch")
+                            && id.getPath().matches("textures/layout/[0-9]+\\.png"));
+            for (Identifier id : found.keySet()) {
+                String path = id.getPath();
+                String name = path.substring("textures/layout/".length(), path.length() - ".png".length());
+                try {
+                    numbers.add(Integer.parseInt(name));
+                } catch (NumberFormatException ignored) { }
+            }
+            Collections.sort(numbers);
+        } catch (Exception error) {
+            AeroSwitchClient.LOGGER.warn("Could not enumerate Aero Switch layout artwork; using diagrams", error);
+        }
+        return numbers;
     }
 
     public int borderThickness() {

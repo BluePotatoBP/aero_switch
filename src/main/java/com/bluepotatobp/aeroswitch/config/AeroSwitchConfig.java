@@ -27,6 +27,10 @@ public final class AeroSwitchConfig {
     public int[] focusModifiers = new int[] {
             InputConstants.MOD_ALT, InputConstants.MOD_ALT, InputConstants.MOD_ALT, InputConstants.MOD_ALT,
             InputConstants.MOD_ALT, InputConstants.MOD_ALT, InputConstants.MOD_ALT, InputConstants.MOD_ALT};
+    /** Boot timestamp (epoch millis) captured at load time; seed for the random layout-icon order. */
+    public long lastBoot;
+    /** Artwork index per layout mode (LayoutMode ordinal), or null until generated. */
+    public int[] layoutIcons;
 
     public static AeroSwitchConfig load() {
         AeroSwitchConfig config = new AeroSwitchConfig();
@@ -58,6 +62,16 @@ public final class AeroSwitchConfig {
                     config.focusModifiers[i] = sanitizeModifier(mods.get(i).getAsInt());
                 }
             }
+            if (json.has("lastBoot") && json.get("lastBoot").isJsonPrimitive()) {
+                config.lastBoot = json.get("lastBoot").getAsLong();
+            }
+            if (json.has("layoutIcons") && json.get("layoutIcons").isJsonArray()) {
+                JsonArray icons = json.getAsJsonArray("layoutIcons");
+                config.layoutIcons = new int[icons.size()];
+                for (int i = 0; i < icons.size(); i++) {
+                    config.layoutIcons[i] = Math.max(-1, icons.get(i).getAsInt());
+                }
+            }
         } catch (Exception error) {
             AeroSwitchClient.LOGGER.warn("Could not read Aero Switch config; using defaults", error);
         }
@@ -75,6 +89,12 @@ public final class AeroSwitchConfig {
             JsonArray mods = new JsonArray();
             for (int modifier : focusModifiers) mods.add(modifier);
             json.add("focusModifiers", mods);
+            json.addProperty("lastBoot", lastBoot);
+            if (layoutIcons != null) {
+                JsonArray icons = new JsonArray();
+                for (int icon : layoutIcons) icons.add(icon);
+                json.add("layoutIcons", icons);
+            }
             Files.writeString(FILE, GSON.toJson(json));
         } catch (IOException error) {
             AeroSwitchClient.LOGGER.warn("Could not save Aero Switch config", error);
