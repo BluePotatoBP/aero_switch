@@ -4,8 +4,10 @@ import com.bluepotatobp.aeroswitch.session.SessionManager;
 import com.bluepotatobp.aeroswitch.ui.ImGuiSessionOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.renderer.GameRenderer;
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.WorldStem;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.world.level.gamerules.GameRules;
@@ -81,6 +83,20 @@ public abstract class SessionMinecraftMixin {
     private void aero$disconnect(Screen screen, boolean packs, boolean sound, CallbackInfo ci) {
         if (SessionManager.get().isEnabled()) {
             SessionManager.get().disconnect(screen);
+            ci.cancel();
+        }
+    }
+
+    // Vanilla's disconnectFromWorld (the pause menu "Save and Quit to Title" /
+    // "Disconnect" button) disconnects and then sets the title screen AFTER the
+    // disconnect call returns. SessionManager.disconnect refocuses the next
+    // remaining session as part of teardown, so that trailing gui.setScreen would
+    // land on the newly focused session and cover its live world with a title
+    // screen. Replace the whole flow with the session teardown instead.
+    @Inject(method = "disconnectFromWorld", at = @At("HEAD"), cancellable = true)
+    private void aero$disconnectFromWorld(Component message, CallbackInfo ci) {
+        if (SessionManager.get().isEnabled()) {
+            SessionManager.get().disconnect(new TitleScreen());
             ci.cancel();
         }
     }
