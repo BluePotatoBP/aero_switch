@@ -165,8 +165,15 @@ public final class SessionManager {
         focused = slot;
         target.install(mc());
         mc().gameRenderer.resize(mc().getWindow().getWidth(), mc().getWindow().getHeight());
-        if (mc().gui.screen() == null) mc().mouseHandler.grabMouse();
-        else mc().mouseHandler.releaseMouse();
+        if (mc().gui.screen() == null) {
+            // grabMouse() is a no-op when the mouse is already grabbed, which leaves
+            // the virtual cursor at the previous pane's centre. Release first so the
+            // cursor is re-centred on the newly focused pane, then grab it again.
+            mc().mouseHandler.releaseMouse();
+            mc().mouseHandler.grabMouse();
+        } else {
+            mc().mouseHandler.releaseMouse();
+        }
         mc().updateTitle();
         publishPause();
     }
@@ -400,10 +407,10 @@ public final class SessionManager {
     }
 
     /**
-     * Screen-size value whose {@code / 2} equals the active pane's horizontal centre.
+     * Screen-size value whose {@code / 2} equals the focused pane's horizontal centre.
      * Vanilla {@code MouseHandler.grabMouse/releaseMouse} set the cursor to
      * {@code getScreenWidth() / 2}, which always lands on the full-window centre;
-     * redirecting those calls through here centres on the pane instead.
+     * redirecting those calls through here centres on the focused pane instead.
      */
     public int mouseCenterScreenWidth(int physicalWidth) {
         return layout.mouseCenterScreenWidth(physicalWidth);

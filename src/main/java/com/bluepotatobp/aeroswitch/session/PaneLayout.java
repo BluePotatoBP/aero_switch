@@ -89,13 +89,15 @@ final class PaneLayout {
     }
 
     /**
-     * Screen-size value whose {@code / 2} equals the active pane's horizontal centre.
+     * Screen-size value whose {@code / 2} equals the focused pane's horizontal centre.
      * Vanilla {@code MouseHandler.grabMouse/releaseMouse} set the cursor to
      * {@code getScreenWidth() / 2}, which always lands on the full-window centre;
-     * redirecting those calls through here centres on the pane instead.
+     * redirecting those calls through here centres on the focused pane instead. The
+     * cursor is a single shared resource, so it must follow the focused pane even when
+     * a background session happens to be installed transiently.
      */
     int mouseCenterScreenWidth(int physicalWidth) {
-        SessionManager.Pane pane = activePane();
+        SessionManager.Pane pane = paneFor(owner.focusedSlot());
         if (pane == null) return physicalWidth;
         int x = Math.round(physicalWidth * pane.x());
         int w = Math.max(1, Math.round(physicalWidth * pane.w()));
@@ -104,7 +106,7 @@ final class PaneLayout {
 
     /** Vertical counterpart to {@link #mouseCenterScreenWidth}. */
     int mouseCenterScreenHeight(int physicalHeight) {
-        SessionManager.Pane pane = activePane();
+        SessionManager.Pane pane = paneFor(owner.focusedSlot());
         if (pane == null) return physicalHeight;
         int y = Math.round(physicalHeight * pane.y());
         int h = Math.max(1, Math.round(physicalHeight * pane.h()));

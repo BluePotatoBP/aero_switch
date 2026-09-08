@@ -6,7 +6,9 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.platform.Window;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -18,6 +20,12 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  */
 @Mixin(Camera.class)
 public abstract class SessionCameraMixin {
+    @Shadow private float fovModifier;
+    @Shadow private float oldFovModifier;
+    @Shadow private boolean isPanoramicMode;
+
+    @Shadow protected abstract float modifyFovBasedOnDeathOrFluid(float partialTicks, float fov);
+
     @Redirect(method = "update", at = @At(value = "INVOKE",
             target = "Lcom/mojang/blaze3d/platform/Window;getWidth()I"))
     private int aero$updateWidth(Window window) {
@@ -54,7 +62,7 @@ public abstract class SessionCameraMixin {
     private float aero$backgroundFov(Camera camera, float partialTicks, Operation<Float> original) {
         float fov = original.call(camera, partialTicks);
         if (SessionManager.get().isBackgroundContext()) {
-            return (float) Minecraft.getInstance().options.fov().get().intValue();
+            return aero$vanillaFov(partialTicks);
         }
         return fov;
     }
@@ -64,8 +72,22 @@ public abstract class SessionCameraMixin {
     private float aero$backgroundHudFov(Camera camera, float partialTicks, Operation<Float> original) {
         float fov = original.call(camera, partialTicks);
         if (SessionManager.get().isBackgroundContext()) {
-            return Camera.BASE_HUD_FOV;
+            return modifyFovBasedOnDeathOrFluid(partialTicks, Camera.BASE_HUD_FOV);
         }
         return fov;
+    }
+
+    /**
+     * Recomputes what vanilla {@code Camera.calculateFov} would return for this pane
+     * (base FOV scaled by the speed/FOV modifier, then death/fluid effects) without
+     * any mod wraps. Background panes keep vanilla FOV effects such as the creative
+     * flight boost while still shielding against zoom-mod overrides written at the
+     * wrapped call site.
+     */
+    private float aero$vanillaFov(float partialTicks) {
+        if (isPanoramicMode) return 90.0F;
+        float base = Minecraft.getInstance().options.fov().get().intValue();
+        float fov = base * Mth.lerp(partialTicks, oldFovModifier, fovModifier);
+        return modifyFovBasedOnDeathOrFluid(partialTicks, fov);
     }
 }
