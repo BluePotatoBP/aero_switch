@@ -3,7 +3,6 @@ package com.bluepotatobp.aeroswitch.mixin;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.MouseHandler;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.sounds.SoundManager;

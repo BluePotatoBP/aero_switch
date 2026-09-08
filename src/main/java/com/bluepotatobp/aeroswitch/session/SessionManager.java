@@ -5,6 +5,7 @@ import com.bluepotatobp.aeroswitch.config.AeroSwitchConfig;
 import com.bluepotatobp.aeroswitch.mixin.GameRendererAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import com.bluepotatobp.aeroswitch.ui.SessionScreen;
+import com.mojang.blaze3d.framegraph.FrameGraphBuilder;
 import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.opengl.GlTexture;
@@ -930,8 +931,12 @@ public final class SessionManager {
     private void dimSession(ClientSession session) {
         PostChain chain = dimChain();
         if (chain != null) {
-            chain.process(session.renderer.mainRenderTarget(),
-                    ((GameRendererAccessor) session.renderer).aero$resourcePool());
+            RenderTarget target = session.renderer.mainRenderTarget();
+            FrameGraphBuilder frame = new FrameGraphBuilder();
+            PostChain.TargetBundle targets = PostChain.TargetBundle.of(
+                PostChain.MAIN_TARGET_ID, frame.importExternal("main", target));
+            chain.addToFrame(frame, target.width, target.height, targets);
+            frame.execute(((GameRendererAccessor) session.renderer).aero$resourcePool());
         }
     }
 
