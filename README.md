@@ -52,7 +52,7 @@ For a normal Minecraft launcher profile, no special JVM argument is required. To
 Default controls can be changed in Minecraft's keybind menu under the Aero Switch category.
 
 - Open the session manager: F8
-- Switch world session: F7
+- Switch world session (next occupied session with wrap around): F7
 - Focus session by direction: Alt + Arrow keys
 - Focus session by slot: Alt + number keys
 

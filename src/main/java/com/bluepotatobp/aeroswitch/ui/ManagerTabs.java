@@ -137,39 +137,53 @@ final class ManagerTabs {
         ImGui.dummy(0.0F, 4.0F * ImGuiSessionOverlay.guiScale);
         KeyMapping[] bindings = SessionControls.focusBindings();
         for (int i = 0; i < bindings.length; i++) {
-            KeyMapping mapping = bindings[i];
-            String name = Component.translatable(mapping.getName()).getString();
-            String key = mapping.getTranslatedKeyMessage().getString();
-            boolean awaiting = SessionControls.rebinding() == mapping;
-            ImGui.text(name);
-            ImGui.sameLine(230.0F * ImGuiSessionOverlay.guiScale);
-            if (awaiting) {
-                ImGui.pushStyleColor(ImGuiCol.Button, 104, 203, 175, 255);
-            }
-            if (ImGui.button((awaiting ? "Press a key..." : key) + "##bind_" + mapping.getName(),
-                    170.0F * ImGuiSessionOverlay.guiScale, 0.0F)) {
-                SessionControls.beginRebind(mapping);
-            }
-            if (awaiting) {
-                ImGui.popStyleColor();
-            }
+            drawKeybindRow(manager, bindings[i], i);
+        }
+
+        ImGui.dummy(0.0F, 8.0F * ImGuiSessionOverlay.guiScale);
+        ImGui.text("Session keys:");
+        ImGui.dummy(0.0F, 4.0F * ImGuiSessionOverlay.guiScale);
+        for (KeyMapping mapping : SessionControls.sessionKeys()) {
+            drawKeybindRow(manager, mapping, -1);
+        }
+
+        ImGui.dummy(0.0F, 4.0F * ImGuiSessionOverlay.guiScale);
+        ImGui.textDisabled("Click a key to rebind it. Esc clears a binding. Changes also appear in Options > Controls.");
+    }
+
+    /** Renders one rebind row; {@code focusIndex} >= 0 adds the modifier combo. */
+    private static void drawKeybindRow(SessionManager manager, KeyMapping mapping, int focusIndex) {
+        String name = Component.translatable(mapping.getName()).getString();
+        String key = mapping.getTranslatedKeyMessage().getString();
+        boolean awaiting = SessionControls.rebinding() == mapping;
+        ImGui.text(name);
+        ImGui.sameLine(230.0F * ImGuiSessionOverlay.guiScale);
+        if (awaiting) {
+            ImGui.pushStyleColor(ImGuiCol.Button, 104, 203, 175, 255);
+        }
+        if (ImGui.button((awaiting ? "Press a key..." : key) + "##bind_" + mapping.getName(),
+                170.0F * ImGuiSessionOverlay.guiScale, 0.0F)) {
+            SessionControls.beginRebind(mapping);
+        }
+        if (awaiting) {
+            ImGui.popStyleColor();
+        }
+        if (focusIndex >= 0) {
             ImGui.sameLine();
             ImGui.setNextItemWidth(90.0F * ImGuiSessionOverlay.guiScale);
             SessionControls.Modifier[] modifiers = SessionControls.Modifier.values();
-            int[] current = {SessionControls.Modifier.fromMask(manager.focusModifierMask(i)).ordinal()};
-            if (ImGui.beginCombo("##mod_" + i, modifiers[current[0]].label)) {
+            int[] current = {SessionControls.Modifier.fromMask(manager.focusModifierMask(focusIndex)).ordinal()};
+            if (ImGui.beginCombo("##mod_" + focusIndex, modifiers[current[0]].label)) {
                 for (int n = 0; n < modifiers.length; n++) {
                     boolean selected = current[0] == n;
                     if (ImGui.selectable(modifiers[n].label, selected)) {
-                        manager.setFocusModifier(i, modifiers[n].mask);
+                        manager.setFocusModifier(focusIndex, modifiers[n].mask);
                     }
                     if (selected) ImGui.setItemDefaultFocus();
                 }
                 ImGui.endCombo();
             }
         }
-        ImGui.dummy(0.0F, 4.0F * ImGuiSessionOverlay.guiScale);
-        ImGui.textDisabled("Click a key to rebind it. Esc clears a binding. Changes also appear in Options > Controls.");
     }
 
     private static void layoutButton(Minecraft client, SessionManager manager, SessionManager.LayoutMode mode,

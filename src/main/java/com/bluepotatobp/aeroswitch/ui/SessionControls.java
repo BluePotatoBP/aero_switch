@@ -41,12 +41,9 @@ public final class SessionControls {
 
     public static void initialize() {
         if (!SessionManager.get().isEnabled()) return;
-        KeyMapping.Category category = KeyMapping.Category.register(
-                Identifier.fromNamespaceAndPath("aero_switch", "sessions"));
-        managerKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.aero_switch.manager", InputConstants.Type.KEYSYM, InputConstants.KEY_F8, category));
-        switchKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.aero_switch.next", InputConstants.Type.KEYSYM, InputConstants.KEY_F7, category));
+        KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("aero_switch", "sessions"));
+        managerKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.aero_switch.manager", InputConstants.Type.KEYSYM, InputConstants.KEY_F8, category));
+        switchKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.aero_switch.next", InputConstants.Type.KEYSYM, InputConstants.KEY_F7, category));
         FOCUS[0] = register("key.aero_switch.focus_left", InputConstants.KEY_LEFT, category);
         FOCUS[1] = register("key.aero_switch.focus_right", InputConstants.KEY_RIGHT, category);
         FOCUS[2] = register("key.aero_switch.focus_up", InputConstants.KEY_UP, category);
@@ -58,13 +55,17 @@ public final class SessionControls {
     }
 
     private static KeyMapping register(String name, int key, KeyMapping.Category category) {
-        return KeyMappingHelper.registerKeyMapping(
-                new KeyMapping(name, InputConstants.Type.KEYSYM, key, category));
+        return KeyMappingHelper.registerKeyMapping(new KeyMapping(name, InputConstants.Type.KEYSYM, key, category));
     }
 
     /** The eight focus-switch bindings shown in the manager's keybinds tab. */
     public static KeyMapping[] focusBindings() {
         return FOCUS;
+    }
+
+    /** The F8 manager-toggle and F7 next-session keys shown in the keybinds tab. */
+    public static KeyMapping[] sessionKeys() {
+        return new KeyMapping[] { managerKey, switchKey };
     }
 
     public static void beginRebind(KeyMapping mapping) {
