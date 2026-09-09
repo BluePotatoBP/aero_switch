@@ -22,5 +22,6 @@
   "screen.aero_switch.inactive_fps_empty": "-- FPS",
   "screen.aero_switch.close": "Save / close",
   "screen.aero_switch.add_local": "Open local world",
-  "screen.aero_switch.add_remote": "Join server"
+  "screen.aero_switch.add_remote": "Join server",
+  "chat.aero_switch.blocked": "Aero Switch disabled itself to prevent crashes because these mods are known to conflict: %s. Remove them, or launch with %s to force the engine on."
 }

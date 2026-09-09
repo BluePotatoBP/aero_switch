@@ -1,5 +1,6 @@
 package com.bluepotatobp.aeroswitch.session;
 
+import com.bluepotatobp.aeroswitch.compat.ModCompatibility;
 import com.bluepotatobp.aeroswitch.config.AeroSwitchConfig;
 import com.bluepotatobp.aeroswitch.ui.SessionScreen;
 import com.mojang.blaze3d.pipeline.RenderTarget;
@@ -50,7 +51,7 @@ public final class SessionManager {
      */
     private static volatile boolean axiomEditorActive;
 
-    private final boolean enabled = Boolean.parseBoolean(System.getProperty("aeroSwitch.experimental", "true"));
+    private final boolean enabled = Boolean.parseBoolean(System.getProperty("aeroSwitch.experimental", "true")) && !ModCompatibility.blocked();
     final ClientSession[] slots = new ClientSession[MAX_SESSIONS];
     final SessionPacketRouter router = new SessionPacketRouter(this);
     final SessionScheduler scheduler = new SessionScheduler(this);

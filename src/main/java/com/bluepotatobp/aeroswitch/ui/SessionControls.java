@@ -1,5 +1,6 @@
 package com.bluepotatobp.aeroswitch.ui;
 
+import com.bluepotatobp.aeroswitch.compat.ModCompatibility;
 import com.bluepotatobp.aeroswitch.session.SessionManager;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
@@ -40,7 +41,7 @@ public final class SessionControls {
     private SessionControls() { }
 
     public static void initialize() {
-        if (!SessionManager.get().isEnabled()) return;
+        if (!SessionManager.get().isEnabled() && !ModCompatibility.blocked()) return;
         KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("aero_switch", "sessions"));
         managerKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.aero_switch.manager", InputConstants.Type.KEYSYM, InputConstants.KEY_F8, category));
         switchKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.aero_switch.next", InputConstants.Type.KEYSYM, InputConstants.KEY_F7, category));
@@ -91,7 +92,16 @@ public final class SessionControls {
     public static boolean handleKeyPress(int action, KeyEvent event) {
         if (action != 1) return false;
         SessionManager manager = SessionManager.get();
-        if (!manager.isEnabled()) return false;
+        if (!manager.isEnabled()) {
+            if (!ModCompatibility.blocked()) return false;
+            Minecraft client = Minecraft.getInstance();
+            if (client.gui.screen() instanceof KeyBindsScreen) return false;
+            if (matchesSessionBinding(event)) {
+                ModCompatibility.warnIfBlocked(client);
+                return true;
+            }
+            return false;
+        }
 
         // A pending rebind consumes the next non-modifier key press.
         if (pendingRebind != null) {
@@ -130,6 +140,15 @@ public final class SessionControls {
                 case 3 -> manager.focusDirection(SessionManager.Direction.DOWN);
                 default -> manager.focusByNumber(i - 3);
             };
+        }
+        return false;
+    }
+
+    private static boolean matchesSessionBinding(KeyEvent event) {
+        if (managerKey != null && managerKey.matches(event)) return true;
+        if (switchKey != null && switchKey.matches(event)) return true;
+        for (KeyMapping mapping : FOCUS) {
+            if (mapping != null && mapping.matches(event)) return true;
         }
         return false;
     }

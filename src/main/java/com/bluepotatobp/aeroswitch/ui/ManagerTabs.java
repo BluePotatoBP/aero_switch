@@ -34,6 +34,10 @@ final class ManagerTabs {
                     drawKeybinds(manager);
                     ImGui.endTabItem();
                 }
+                if (ImGui.beginTabItem("Mod compatibility")) {
+                    ModCompatTab.draw(client);
+                    ImGui.endTabItem();
+                }
                 ImGui.endTabBar();
             }
 

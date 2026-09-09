@@ -7,7 +7,8 @@
   "authors": ["bluepotatobp"],
   "environment": "client",
   "entrypoints": {
-    "client": ["com.bluepotatobp.aeroswitch.AeroSwitchClient"]
+    "client": ["com.bluepotatobp.aeroswitch.AeroSwitchClient"],
+    "preLaunch": ["com.bluepotatobp.aeroswitch.AeroSwitchPreLaunch"]
   },
   "mixins": ["aero_switch.mixins.json"],
   "depends": {
