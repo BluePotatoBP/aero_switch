@@ -27,6 +27,12 @@ public final class AeroSwitchMixinPlugin implements IMixinConfigPlugin {
         if (mixinClassName.endsWith(".BetterCloudsCompatMixin")) {
             return FabricLoader.getInstance().isModLoaded("betterclouds");
         }
+        if (mixinClassName.endsWith(".AxiomContextMenuCompatMixin")) {
+            return FabricLoader.getInstance().isModLoaded("axiom");
+        }
+        if (mixinClassName.endsWith(".AxiomImGuiCompatMixin")) {
+            return FabricLoader.getInstance().isModLoaded("axiom");
+        }
         return true;
     }
 

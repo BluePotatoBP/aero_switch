@@ -42,6 +42,14 @@ public final class SessionManager {
     }
 
     private static final SessionManager INSTANCE = new SessionManager();
+
+    /**
+     * Set each frame by {@code AxiomImGuiCompatMixin} while Axiom's editor UI owns the
+     * mouse. When true, pane click-to-focus is suppressed because Axiom renders and
+     * hit-tests its editor over the whole window rather than one pane.
+     */
+    private static volatile boolean axiomEditorActive;
+
     private final boolean enabled = Boolean.parseBoolean(System.getProperty("aeroSwitch.experimental", "true"));
     final ClientSession[] slots = new ClientSession[MAX_SESSIONS];
     final SessionPacketRouter router = new SessionPacketRouter(this);
@@ -73,6 +81,10 @@ public final class SessionManager {
     }
 
     public static SessionManager get() { return INSTANCE; }
+
+    public static void setAxiomEditorActive(boolean active) { axiomEditorActive = active; }
+    public static boolean axiomEditorActive() { return axiomEditorActive; }
+
     public boolean isEnabled() { return enabled; }
     Minecraft mc() { return Minecraft.getInstance(); }
 

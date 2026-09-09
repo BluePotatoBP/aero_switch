@@ -33,6 +33,8 @@
     "SessionGuiMixin",
     "SessionTaskMixin",
     "BetterCloudsCompatMixin",
+    "AxiomContextMenuCompatMixin",
+    "AxiomImGuiCompatMixin",
     "RegistryHolderIdFallbackMixin"
   ],
   "injectors": {

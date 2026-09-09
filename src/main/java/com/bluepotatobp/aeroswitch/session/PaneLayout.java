@@ -19,6 +19,12 @@ final class PaneLayout {
     /** Normalized rectangle for a session slot in the current layout, or null if it has no pane. */
     SessionManager.Pane paneFor(int slot) {
         if (!owner.isEnabled()) return new SessionManager.Pane(0, 0, 1, 1);
+        // Axiom's editor renders and raycasts against a single full-frame viewport with
+        // its own camera, so pane splitting must be bypassed while it is active: only the
+        // focused session is presented, full-frame, and the mouse remap becomes identity.
+        if (SessionManager.axiomEditorActive()) {
+            return slot == owner.focusedSlot() ? new SessionManager.Pane(0, 0, 1, 1) : null;
+        }
         if (owner.layoutMode() == SessionManager.LayoutMode.TABS) {
             return slot == owner.focusedSlot() ? new SessionManager.Pane(0, 0, 1, 1) : null;
         }
@@ -114,7 +120,8 @@ final class PaneLayout {
     }
 
     boolean isSplitPresented() {
-        return owner.isEnabled() && owner.layoutMode() != SessionManager.LayoutMode.TABS && presentedCount() >= 2;
+        return owner.isEnabled() && !SessionManager.axiomEditorActive()
+                && owner.layoutMode() != SessionManager.LayoutMode.TABS && presentedCount() >= 2;
     }
 
     List<ClientSession> presentedSessions() {

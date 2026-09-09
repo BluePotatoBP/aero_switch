@@ -26,8 +26,7 @@ public abstract class SessionMouseMixin {
     @Inject(method = "onButton", at = @At("HEAD"), cancellable = true)
     private void aero$focusPane(long handle, MouseButtonInfo button, int action, CallbackInfo ci) {
         MouseHandler mouse = (MouseHandler) (Object) this;
-        if (action != InputConstants.PRESS || button.button() != InputConstants.MOUSE_BUTTON_LEFT
-                || mouse.isMouseGrabbed() || ImGuiSessionOverlay.wantsCaptureMouse()) return;
+        if (action != InputConstants.PRESS || button.button() != InputConstants.MOUSE_BUTTON_LEFT || mouse.isMouseGrabbed() || ImGuiSessionOverlay.wantsCaptureMouse() || SessionManager.axiomEditorActive()) return;
         Minecraft client = Minecraft.getInstance();
         Window window = client.getWindow();
         if (handle != window.handle()) return;

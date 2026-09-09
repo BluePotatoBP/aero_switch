@@ -60,7 +60,9 @@ final class SessionScreens {
 
     boolean focusPane(double x, double y, int width, int height) {
         owner.checkThread();
-        if (!owner.isEnabled() || owner.layoutMode() == SessionManager.LayoutMode.TABS) return false;
+        // Pane focusing only makes sense while panes are actually presented (and
+        // never while Axiom's full-frame editor owns the window).
+        if (!owner.isSplitPresented()) return false;
         for (ClientSession session : owner.layout.presentedSessions()) {
             int[] bounds = owner.paneBounds(session.slot, width, height);
             if (x >= bounds[0] && x < bounds[0] + bounds[2] && y >= bounds[1] && y < bounds[1] + bounds[3]) {
