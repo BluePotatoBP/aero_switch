@@ -5,3 +5,4 @@ run/
 *.iml
 bin/
 tmp/
+logs/

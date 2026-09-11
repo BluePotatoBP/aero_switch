@@ -18,9 +18,15 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Minecraft.class)
 public abstract class SessionMinecraftMixin {
+    @Inject(method = "getFps", at = @At("RETURN"), cancellable = true)
+    private void aero$sessionFps(CallbackInfoReturnable<Integer> cir) {
+        cir.setReturnValue(SessionManager.get().displayedFps(cir.getReturnValue()));
+    }
+
     @Inject(method = "setScreenAndShow", at = @At("HEAD"), cancellable = true)
     private void aero$backgroundScreen(Screen screen, CallbackInfo ci) {
         if (SessionManager.get().isBackgroundContext()) {

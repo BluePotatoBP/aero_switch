@@ -10,7 +10,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Per-session scoping for BetterF3's velocity cache. BetterF3's
+ * Per-session scoping for BetterF3's shared animation and velocity state.
+ * BetterF3's animation uses static fields, while its
  * {@code CoordsModule} is a singleton that renders the F3 velocity line by caching
  * the previous position in {@code prevPos} and computing
  * {@code prevPos - currentPos} (then scaling by FPS up to 20). Every Aero Switch
@@ -34,6 +35,11 @@ import org.apache.logging.log4j.Logger;
  * as a velocity jump.</p>
  */
 public final class BetterF3Compat {
+    /** Snapshot of BetterF3's static menu animation state. */
+    public record AnimationState(int xPos, long lastUpdate, boolean closing) {
+        public static final AnimationState INITIAL = new AnimationState(200, 0L, false);
+    }
+
     /** Snapshot of BetterF3's velocity cache. Plain doubles keep this Minecraft-free for unit tests. */
     public record CoordsState(
             double prevX, double prevY, double prevZ,
@@ -46,11 +52,14 @@ public final class BetterF3Compat {
 
     private static final boolean LOADED = FabricLoader.getInstance().isModLoaded("betterf3");
     private static final CoordsStateStore STORE = new CoordsStateStore(4);
+    private static final AnimationStateStore ANIMATION_STORE = new AnimationStateStore(4);
     private static final Logger LOGGER = LogManager.getLogger("aero_switch");
 
     private static volatile boolean loggedResolve;
     private static volatile boolean loggedReadError;
     private static volatile boolean loggedWriteError;
+    private static volatile boolean loggedAnimationResolve;
+    private static volatile boolean loggedAnimationError;
 
     private static volatile Object coordsModule;
     private static volatile Field prevPos;
@@ -58,6 +67,9 @@ public final class BetterF3Compat {
     private static volatile Field positionUpdateTime;
     private static volatile Field moduleListLeft;
     private static volatile Field moduleListRight;
+    private static volatile Field animationXPos;
+    private static volatile Field animationLastUpdate;
+    private static volatile Field animationClosing;
 
     private BetterF3Compat() { }
 
@@ -75,6 +87,7 @@ public final class BetterF3Compat {
      * runs at the method's final return.</p>
      */
     public static void beginRender(int slot) {
+        scopeAnimation(slot);
         if (!resolve()) return;
         try {
             CoordsState current = currentPositionState();
@@ -92,6 +105,55 @@ public final class BetterF3Compat {
     /** Clears a session's cached position state when its slot is freed. */
     public static void reset(int slot) {
         STORE.reset(slot);
+        ANIMATION_STORE.reset(slot);
+    }
+
+    private static void scopeAnimation(int slot) {
+        if (!resolveAnimation()) return;
+        try {
+            AnimationState live = new AnimationState(
+                    animationXPos.getInt(null),
+                    animationLastUpdate.getLong(null),
+                    animationClosing.getBoolean(null));
+            AnimationState next = ANIMATION_STORE.begin(slot, live);
+            if (next == null) return;
+            animationXPos.setInt(null, next.xPos());
+            animationLastUpdate.setLong(null, next.lastUpdate());
+            animationClosing.setBoolean(null, next.closing());
+        } catch (Throwable t) {
+            if (!loggedAnimationError) {
+                loggedAnimationError = true;
+                LOGGER.warn("BetterF3 animation state scoping failed ({})", t.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private static boolean resolveAnimation() {
+        if (animationXPos != null) return true;
+        if (!LOADED) return false;
+        synchronized (BetterF3Compat.class) {
+            if (animationXPos != null) return true;
+            try {
+                Class<?> utils = Class.forName("me.cominixo.betterf3.utils.Utils");
+                Field xPos = utils.getField("xPos");
+                Field lastUpdate = utils.getField("lastAnimationUpdate");
+                Field closing = utils.getField("closingAnimation");
+                animationLastUpdate = lastUpdate;
+                animationClosing = closing;
+                animationXPos = xPos;
+                if (!loggedAnimationResolve) {
+                    loggedAnimationResolve = true;
+                    LOGGER.info("BetterF3 animation scoping active");
+                }
+                return true;
+            } catch (Throwable t) {
+                if (!loggedAnimationResolve) {
+                    loggedAnimationResolve = true;
+                    LOGGER.warn("BetterF3 animation state could not be resolved ({})", t.getClass().getSimpleName());
+                }
+                return false;
+            }
+        }
     }
 
     /**

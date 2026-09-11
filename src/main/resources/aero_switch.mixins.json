@@ -34,7 +34,6 @@
     "SessionTaskMixin",
     "BetterCloudsCompatMixin",
     "BetterF3DebugScreenMixin",
-    "BetterF3AnimationCompatMixin",
     "AxiomContextMenuCompatMixin",
     "AxiomImGuiCompatMixin",
     "RegistryHolderIdFallbackMixin"

@@ -371,6 +371,12 @@ public final class SessionManager {
         return enabled && active != null && mc().isSameThread() && active.slot != focused;
     }
 
+    public int displayedFps(int measuredFps) {
+        boolean background = isBackgroundContext();
+        int configuredFps = background ? active.inactiveFps : measuredFps;
+        return FpsDisplay.select(measuredFps, background, configuredFps);
+    }
+
     public void tickBackground() {
         scheduler.tickBackground();
     }
