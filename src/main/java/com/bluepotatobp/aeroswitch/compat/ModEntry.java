@@ -16,7 +16,8 @@ public record ModEntry(
         Status status,
         String note,
         Integer noteId,
-        String description) {
+        String description,
+        String version) {
 
     public ModEntry {
         aliases = aliases == null ? List.of() : List.copyOf(aliases);

@@ -91,6 +91,20 @@ class CompatDataParserTest {
     }
 
     @Test
+    void parsesVersionString() {
+        CompatDataParser.ParseResult r = CompatDataParser.parse(
+                "{ \"mods\": [ { \"id\": \"x\", \"status\": \"works\", \"version\": \"0.2.19-beta\" } ] }");
+        assertTrue(r.errors().isEmpty(), r.errors().toString());
+        assertEquals("0.2.19-beta", r.data().mods().get(0).version());
+    }
+
+    @Test
+    void versionIsNullWhenAbsent() {
+        CompatDataParser.ParseResult r = CompatDataParser.parse("{ \"mods\": [ { \"id\": \"x\", \"status\": \"works\" } ] }");
+        assertNull(r.data().mods().get(0).version());
+    }
+
+    @Test
     void malformedJsonYieldsErrors() {
         CompatDataParser.ParseResult r = CompatDataParser.parse("{ not json");
         assertTrue(r.data().mods().isEmpty());

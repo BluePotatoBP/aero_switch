@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CompatFilterTest {
 
     private static CompatibilityRow row(String id, Status status, String searchText, boolean installed) {
-        return new CompatibilityRow(id, id, status, null, searchText, installed);
+        return new CompatibilityRow(id, id, status, null, searchText, installed, null);
     }
 
     @Test

@@ -85,7 +85,7 @@ public final class CompatDataParser {
             errors.add("mods[" + index + "] (" + id + "): noteId " + noteId + " out of range 0.." + (noteCount - 1));
             return null;
         }
-        return new ModEntry(id, strList(o, "aliases"), str(o, "name"), status, note, noteId, str(o, "description"));
+        return new ModEntry(id, strList(o, "aliases"), str(o, "name"), status, note, noteId, str(o, "description"), str(o, "version"));
     }
 
     private static Status parseStatus(String raw) {

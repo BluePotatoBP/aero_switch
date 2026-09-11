@@ -16,9 +16,9 @@ class CompatCatalogTest {
         CompatData data = new CompatData(
                 List.of("shared note"),
                 List.of(
-                        new ModEntry("sodium", List.of(), null, Status.WORKS, null, null, null),
-                        new ModEntry("betterclouds", List.of(), null, Status.PATCHED, null, 0, null),
-                        new ModEntry("axiom", List.of(), "Axiom", Status.PATCHED, "custom note", null, null)));
+                        new ModEntry("sodium", List.of(), null, Status.WORKS, null, null, null, null),
+                        new ModEntry("betterclouds", List.of(), null, Status.PATCHED, null, 0, null, "1.14.4"),
+                        new ModEntry("axiom", List.of(), "Axiom", Status.PATCHED, "custom note", null, null, null)));
         Map<String, CompatCatalog.InstalledMod> installed = Map.of(
                 "sodium", new CompatCatalog.InstalledMod("sodium", "Sodium", "Renderer"),
                 "betterclouds", new CompatCatalog.InstalledMod("betterclouds", "Better Clouds", "Clouds"),
@@ -40,6 +40,8 @@ class CompatCatalogTest {
         assertEquals("custom note", axiom.note());
         assertTrue(axiom.searchText().contains("custom note")); // custom note searchable
 
+        assertEquals("1.14.4", rows.get(1).version()); // tested version carried to the row
+
         CompatibilityRow unlisted = rows.get(3);
         assertEquals(Status.UNTESTED, unlisted.status());
         assertTrue(unlisted.installed());
@@ -49,7 +51,7 @@ class CompatCatalogTest {
     @Test
     void aliasMatchesInstalledModAndSuppressesUntested() {
         CompatData data = new CompatData(List.of(), List.of(
-                new ModEntry("bc", List.of("betterclouds", "qendolin_bc"), null, Status.PATCHED, "x", null, null)));
+                new ModEntry("bc", List.of("betterclouds", "qendolin_bc"), null, Status.PATCHED, "x", null, null, null)));
         Map<String, CompatCatalog.InstalledMod> installed = Map.of(
                 "betterclouds", new CompatCatalog.InstalledMod("betterclouds", "Better Clouds", ""));
 
@@ -62,7 +64,7 @@ class CompatCatalogTest {
     @Test
     void uninstalledCuratedRowKeepsCuratedName() {
         CompatData data = new CompatData(List.of(), List.of(
-                new ModEntry("iris", List.of(), "Iris", Status.WORKS, null, null, "Shader packs")));
+                new ModEntry("iris", List.of(), "Iris", Status.WORKS, null, null, "Shader packs", null)));
         List<CompatibilityRow> rows = CompatCatalog.build(data, Map.of());
         assertEquals(1, rows.size());
         CompatibilityRow iris = rows.get(0);

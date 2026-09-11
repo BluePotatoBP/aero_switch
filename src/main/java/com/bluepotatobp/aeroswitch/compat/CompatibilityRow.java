@@ -6,4 +6,4 @@ package com.bluepotatobp.aeroswitch.compat;
  * @param searchText precomputed lowercase haystack built from name + description + custom note only.
  *                   Shared (noteId-based) note text is deliberately excluded from search.
  */
-public record CompatibilityRow( String id, String name, Status status, String note, String searchText, boolean installed ) {}
+public record CompatibilityRow( String id, String name, Status status, String note, String searchText, boolean installed, String version ) {}

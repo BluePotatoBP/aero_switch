@@ -37,7 +37,7 @@ public final class CompatCatalog {
             String description = firstNonBlank(inst != null ? inst.description() : null, entry.description());
             String note = data.noteFor(entry);
             String searchText = searchText(displayName, description, entry.note());
-            rows.add(new CompatibilityRow(entry.id(), displayName, entry.status(), note, searchText, isInstalled));
+            rows.add(new CompatibilityRow(entry.id(), displayName, entry.status(), note, searchText, isInstalled, entry.version()));
         }
 
         List<CompatibilityRow> untested = new ArrayList<>();
@@ -45,7 +45,7 @@ public final class CompatCatalog {
             if (covered.contains(inst.id().toLowerCase(Locale.ROOT))) continue;
             String displayName = firstNonBlank(inst.name(), inst.id());
             String searchText = searchText(displayName, inst.description(), null);
-            untested.add(new CompatibilityRow(inst.id(), displayName, Status.UNTESTED, null, searchText, true));
+            untested.add(new CompatibilityRow(inst.id(), displayName, Status.UNTESTED, null, searchText, true, null));
         }
         untested.sort(Comparator.comparing(row -> row.name().toLowerCase(Locale.ROOT)));
         rows.addAll(untested);

@@ -1,5 +1,6 @@
 package com.bluepotatobp.aeroswitch.session;
 
+import com.bluepotatobp.aeroswitch.compat.VoxyCompat;
 import com.bluepotatobp.aeroswitch.mixin.CreativeModeInventoryScreenAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import com.bluepotatobp.aeroswitch.mixin.SessionOptionsAccessor;
@@ -66,6 +67,7 @@ final class ClientSession {
     }
 
     void capture(Minecraft mc) {
+        VoxyCompat.capture(slot);
         SessionMinecraftAccessor access = (SessionMinecraftAccessor) mc;
         level = mc.level;
         player = mc.player;
@@ -96,6 +98,7 @@ final class ClientSession {
     }
 
     void install(Minecraft mc) {
+        VoxyCompat.install(slot);
         SessionMinecraftAccessor access = (SessionMinecraftAccessor) mc;
         mc.level = level;
         mc.player = player;

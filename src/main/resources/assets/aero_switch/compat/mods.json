@@ -3,13 +3,15 @@
     "Confirmed working",
     "Aero Switch keeps one cloud renderer keyed to the focused world. Better Clouds is patched so background sessions fall back to vanilla clouds.",
     "Axiom's custom screens are remapped to the focused pane; its full-window editor switches Aero Switch to single-frame mode while open.",
-    "BetterF3's coordinates module is scoped per session to prevent stale position data from leaking between panes. FPS counter faked to be = configured inactive instance FPS"
+    "BetterF3's coordinates module is scoped per session to prevent stale position data from leaking between panes. FPS counter set to be equal to configured inactive instance FPS.",
+    "Voxy's world database and session lifecycle are scoped per instance so every world reads its own LoD cache."
   ],
   "mods": [
-    { "id": "betterclouds", "status": "patched", "noteId": 1 },
-    { "id": "axiom", "status": "patched", "noteId": 2 },
+    { "id": "betterclouds", "status": "patched", "noteId": 1, "version": "1.14.2" },
+    { "id": "axiom", "status": "patched", "noteId": 2, "version": "6.0.0" },
     { "id": "aero_switch", "status": "works", "noteId": 0},
-    { "id": "sodium", "status": "works", "noteId": 0 },
-    { "id": "betterf3", "status": "patched", "noteId": 3 }
+    { "id": "sodium", "status": "works", "noteId": 0, "version": "0.9.2-alpha.3" },
+    { "id": "betterf3", "status": "patched", "noteId": 3, "version": "19.0.0" },
+    { "id": "voxy", "status": "patched", "noteId": 4, "version": "0.2.19-beta" }
   ]
 }

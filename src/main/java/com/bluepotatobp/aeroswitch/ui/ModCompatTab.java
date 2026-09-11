@@ -74,10 +74,11 @@ final class ModCompatTab {
 
         if (pageRows.isEmpty()) {
             ImGui.textDisabled("No mods match.");
-        } else if (ImGui.beginTable("compat_table", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.NoSavedSettings)) {
+        } else if (ImGui.beginTable("compat_table", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.NoSavedSettings)) {
             ImGui.tableSetupScrollFreeze(0, 1);
             ImGui.tableSetupColumn("Name");
             ImGui.tableSetupColumn("Compatibility", ImGuiTableColumnFlags.WidthFixed, 150.0F * scale);
+            ImGui.tableSetupColumn("Version", ImGuiTableColumnFlags.WidthFixed, 110.0F * scale);
             ImGui.tableSetupColumn("Note");
             ImGui.tableHeadersRow();
             for (CompatibilityRow row : pageRows) {
@@ -130,6 +131,15 @@ final class ModCompatTab {
         ImGui.tableSetColumnIndex(1);
         drawStatus(row.status());
         ImGui.tableSetColumnIndex(2);
+        String version = row.version();
+        if (version == null || version.isBlank()) {
+            ImGui.pushStyleColor(ImGuiCol.Text, 130, 130, 130, 255);
+            ImGui.text("-");
+            ImGui.popStyleColor();
+        } else {
+            ImGui.text(version);
+        }
+        ImGui.tableSetColumnIndex(3);
         String note = row.note();
         if (note == null || note.isBlank()) {
             ImGui.pushStyleColor(ImGuiCol.Text, 130, 130, 130, 255);

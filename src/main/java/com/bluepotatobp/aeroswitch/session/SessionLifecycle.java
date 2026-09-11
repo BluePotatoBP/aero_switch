@@ -1,6 +1,7 @@
 package com.bluepotatobp.aeroswitch.session;
 
 import com.bluepotatobp.aeroswitch.compat.BetterF3Compat;
+import com.bluepotatobp.aeroswitch.compat.VoxyCompat;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -65,6 +66,7 @@ final class SessionLifecycle {
             target.particles.setLevel(null);
             target.renderer.setLevel(null);
             target.renderer.resetData();
+            VoxyCompat.close(target.slot);
             ((SessionMinecraftAccessor) owner.mc()).aero$pending(null);
             ((SessionMinecraftAccessor) owner.mc()).aero$local(false);
             ((SessionMinecraftAccessor) owner.mc()).aero$pause(false);
