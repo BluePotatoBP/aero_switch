@@ -10,6 +10,7 @@ import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.Hud;
+import net.minecraft.client.gui.components.debug.DebugScreenEntryList;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
@@ -58,6 +59,7 @@ final class ClientSession {
     CameraType cameraType;
     int serverRenderDistance;
     CreativeModeTab creativeTab;
+    DebugScreenEntryList debugEntries;
 
     ClientSession(int slot) {
         this.slot = slot;
@@ -84,6 +86,7 @@ final class ClientSession {
         extractor = mc.levelExtractor;
         particles = mc.particleEngine;
         gui = mc.gui;
+        debugEntries = access.aero$debugEntries();
         cameraType = mc.options.getCameraType();
         serverRenderDistance = ((SessionOptionsAccessor) mc.options).aero$serverRenderDistance();
         if (gui.screen() instanceof CreativeModeInventoryScreen) {
@@ -111,6 +114,7 @@ final class ClientSession {
         access.aero$extractor(extractor);
         access.aero$particles(particles);
         access.aero$gui(gui);
+        access.aero$debugEntries(debugEntries);
         if (cameraType != null) mc.options.setCameraType(cameraType);
         ((SessionOptionsAccessor) mc.options).aero$serverRenderDistance(serverRenderDistance);
         if (gui.screen() instanceof CreativeModeInventoryScreen screen && creativeTab != null) {
@@ -128,6 +132,7 @@ final class ClientSession {
     void createEngines(Minecraft mc) {
         reporting = mc.getReportingContext();
         cameraType = mc.options.getCameraType();
+        debugEntries = new DebugScreenEntryList(mc.gameDirectory, mc.getFixerUpper());
         renderer = new GameRenderer(mc,
                 new ItemInHandRenderer(mc, mc.getEntityRenderDispatcher(), mc.getItemModelResolver()), mc.getModelManager());
         renderer.gameRenderState().windowRenderState.width = mc.getWindow().getWidth();

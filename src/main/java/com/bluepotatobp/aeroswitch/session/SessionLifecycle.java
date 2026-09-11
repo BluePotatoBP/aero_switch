@@ -1,5 +1,6 @@
 package com.bluepotatobp.aeroswitch.session;
 
+import com.bluepotatobp.aeroswitch.compat.BetterF3Compat;
 import com.bluepotatobp.aeroswitch.mixin.SessionMinecraftAccessor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -43,10 +44,16 @@ final class SessionLifecycle {
             ((SessionMinecraftAccessor) owner.mc()).aero$server(null);
             if (server != null) {
                 server.halt(false);
-                while (!server.isShutdown()) {
-                    owner.serviceDuringWait();
-                    long until = Util.getNanos() + 1_000_000L;
-                    owner.mc().managedBlock(() -> Util.getNanos() >= until);
+                // The fabric client gametest harness gates server ticking behind a
+                // thread phaser that only advances once this disconnect returns, so
+                // blocking here deadlocks the whole client. Skip the wait there and
+                // let the server finish saving on its own thread.
+                if (!SessionScheduler.gametestHarnessActive()) {
+                    while (!server.isShutdown()) {
+                        owner.serviceDuringWait();
+                        long until = Util.getNanos() + 1_000_000L;
+                        owner.mc().managedBlock(() -> Util.getNanos() >= until);
+                    }
                 }
                 owner.scheduler.forgetServer(server);
             }
@@ -63,6 +70,7 @@ final class SessionLifecycle {
             ((SessionMinecraftAccessor) owner.mc()).aero$pause(false);
             target.connection = null;
             target.occupied = false;
+            BetterF3Compat.reset(target.slot);
             target.generation++;
             owner.mc().gui.hud.onDisconnected();
             owner.mc().gui.setScreen(screen);

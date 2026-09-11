@@ -35,8 +35,8 @@ public final class RemoteSessionScenario implements ClientModInitializer {
     public void onInitializeClient() {
         if (!Boolean.getBoolean("aeroSwitch.sessionTest")) return;
         scenario = System.getProperty("aeroSwitch.scenario", "local-local");
-        // creative-tabs is a local scenario handled by SessionScenarioClient.
-        if (scenario.equals("local-local") || scenario.equals("creative-tabs")) return;
+        // local scenarios are handled by SessionScenarioClient.
+        if (scenario.equals("local-local") || scenario.equals("creative-tabs") || scenario.equals("debug-overlay")) return;
         require(scenario.equals("remote-remote") || scenario.equals("local-remote") || scenario.equals("remote-local"),
                 "Unknown session scenario: " + scenario);
         deadline = System.nanoTime() + 120_000_000_000L;

@@ -2,11 +2,14 @@
   "notes": [
     "Confirmed working",
     "Aero Switch keeps one cloud renderer keyed to the focused world. Better Clouds is patched so background sessions fall back to vanilla clouds.",
-    "Axiom's custom screens are remapped to the focused pane; its full-window editor switches Aero Switch to single-frame mode while open."
+    "Axiom's custom screens are remapped to the focused pane; its full-window editor switches Aero Switch to single-frame mode while open.",
+    "BetterF3's coordinates module is scoped per session to prevent stale position data from leaking between panes. FPS counter faked to be = configured inactive instance FPS"
   ],
   "mods": [
     { "id": "betterclouds", "status": "patched", "noteId": 1 },
     { "id": "axiom", "status": "patched", "noteId": 2 },
-    { "id": "aero_switch", "status": "works", "noteId": 0}
+    { "id": "aero_switch", "status": "works", "noteId": 0},
+    { "id": "sodium", "status": "works", "noteId": 0 },
+    { "id": "betterf3", "status": "patched", "noteId": 3 }
   ]
 }

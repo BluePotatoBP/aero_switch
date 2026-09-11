@@ -2,6 +2,7 @@ package com.bluepotatobp.aeroswitch.mixin;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.components.debug.DebugScreenEntryList;
 import net.minecraft.client.multiplayer.chat.report.ReportingContext;
 import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.GameRenderer;
@@ -29,4 +30,6 @@ public interface SessionMinecraftAccessor {
     @Mutable @Accessor("levelExtractor") void aero$extractor(LevelExtractor value);
     @Mutable @Accessor("particleEngine") void aero$particles(ParticleEngine value);
     @Mutable @Accessor("gui") void aero$gui(Gui value);
+    @Mutable @Accessor("debugEntries") DebugScreenEntryList aero$debugEntries();
+    @Mutable @Accessor("debugEntries") void aero$debugEntries(DebugScreenEntryList value);
 }

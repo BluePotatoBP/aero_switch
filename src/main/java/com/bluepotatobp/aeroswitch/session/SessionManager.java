@@ -118,6 +118,11 @@ public final class SessionManager {
 
     public int focusedSlot() { return focused; }
 
+    /** The slot currently installed in the shared client (foreground or background render). */
+    public int activeSlot() {
+        return active == null ? 0 : active.slot;
+    }
+
     public boolean hasSession(int slot) {
         if (!enabled) return slot == 0 && mc().level != null;
         adopt();

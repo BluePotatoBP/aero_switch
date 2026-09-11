@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 public final class SessionScenarioClient implements ClientModInitializer {
     private final LocalLocalScenario localLocal = new LocalLocalScenario();
     private final CreativeTabsScenario creativeTabs = new CreativeTabsScenario();
+    private final DebugOverlayScenario debugOverlay = new DebugOverlayScenario();
 
     @Override
     public void onInitializeClient() {
@@ -16,6 +17,8 @@ public final class SessionScenarioClient implements ClientModInitializer {
             ClientTickEvents.END_CLIENT_TICK.register(localLocal::tick);
         } else if (scenario.equals("creative-tabs")) {
             ClientTickEvents.END_CLIENT_TICK.register(creativeTabs::tick);
+        } else if (scenario.equals("debug-overlay")) {
+            ClientTickEvents.END_CLIENT_TICK.register(debugOverlay::tick);
         }
     }
 }

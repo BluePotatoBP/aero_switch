@@ -21,6 +21,22 @@ final class SessionScheduler {
         this.owner = owner;
     }
 
+    /**
+     * True while a fabric client gametest is running. In that harness the server
+     * cannot tick until the render thread returns from the current disconnect
+     * (its threading phaser is gated on the render thread), so any synchronous
+     * wait for server shutdown deadlocks. Detected reflectively to avoid a hard
+     * dependency on fabric internals.
+     */
+    static boolean gametestHarnessActive() {
+        try {
+            Class<?> threading = Class.forName("net.fabricmc.fabric.impl.client.gametest.threading.ThreadingImpl");
+            return threading.getField("testThread").get(null) != null;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     void tickBackground() {
         if (!owner.isEnabled() || owner.servicing) return;
         owner.adopt();
