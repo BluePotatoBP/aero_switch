@@ -10,6 +10,28 @@ Aero Switch is a client-side Fabric mod for Minecraft 26.2 that runs multiple Mi
 - Optional pane borders, compact status display, inactive-session dimming, and pause or keep-running controls.
 - Client keybindings for opening the session manager, switching sessions, and focusing panes.
 
+## FAQ
+
+You can find a list of questions and answers in the documentation: [`documentation/FAQ.md`](documentation/FAQ.md):
+
+
+## Documentation
+
+Developer documentation lives in [`documentation/`](documentation/HOME.md):
+
+- [Documentation home](documentation/HOME.md) - overview and full page index.
+- [Mod integration guide](documentation/Mod-Integration-Guide.md) - what mod authors should do to work under split-screen, plus the public API.
+- [Compatibility catalog](documentation/Compat-Catalog.md) - statuses, catalog schema, and boot blocking behavior.
+
+## Controls
+
+Default controls can be changed in Minecraft's keybind menu under the Aero Switch category.
+
+- Open the session manager: F8
+- Switch world session (next occupied session with wrap around): F7
+- Focus session by direction: Alt + Arrow keys
+- Focus session by slot: Alt + number keys
+
 ## Requirements
 
 - Java 25
@@ -46,15 +68,6 @@ For a normal Minecraft launcher profile, no special JVM argument is required. To
 ```text
 -DaeroSwitch.experimental=false
 ```
-
-## Controls
-
-Default controls can be changed in Minecraft's keybind menu under the Aero Switch category.
-
-- Open the session manager: F8
-- Switch world session (next occupied session with wrap around): F7
-- Focus session by direction: Alt + Arrow keys
-- Focus session by slot: Alt + number keys
 
 ## Configuration
 

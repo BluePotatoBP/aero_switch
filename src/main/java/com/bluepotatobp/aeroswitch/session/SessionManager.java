@@ -42,6 +42,19 @@ public final class SessionManager {
         LEFT, RIGHT, UP, DOWN
     }
 
+    /**
+     * Client-thread callback for session lifecycle changes. Register with
+     * {@link #addSessionObserver(SessionObserver)}.
+     */
+    @FunctionalInterface
+    public interface SessionObserver {
+        /**
+         * Called after the session in {@code slot} has been closed and its slot
+         * freed. Use it to clear per-slot state.
+         */
+        void onSessionClosed(int slot);
+    }
+
     private static final SessionManager INSTANCE = new SessionManager();
 
     /**
@@ -74,6 +87,7 @@ public final class SessionManager {
     int lastSizedCount = -1;
     long bootTimestamp;
     final LayoutIconPicker icons = new LayoutIconPicker(this);
+    final SessionObservers observers = new SessionObservers();
 
     private SessionManager() {
         config = enabled ? AeroSwitchConfig.load() : null;
@@ -365,6 +379,16 @@ public final class SessionManager {
     /** Replaces only experimental teardown; other capsules and queued work remain intact. */
     public void disconnect(Screen screen) {
         lifecycle.disconnect(screen);
+    }
+
+    /** Registers a client-thread callback for session lifecycle changes. */
+    public void addSessionObserver(SessionObserver observer) {
+        observers.add(observer);
+    }
+
+    /** Removes a previously registered observer. */
+    public void removeSessionObserver(SessionObserver observer) {
+        observers.remove(observer);
     }
 
     public boolean isBackgroundContext() {

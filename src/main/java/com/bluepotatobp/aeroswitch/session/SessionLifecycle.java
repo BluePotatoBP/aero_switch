@@ -81,7 +81,10 @@ final class SessionLifecycle {
         } finally {
             owner.closing = false;
         }
-        if (wasOccupied && owner.scoped == 0) finishDisconnect(target.slot);
+        if (wasOccupied) {
+            owner.observers.closed(target.slot);
+            if (owner.scoped == 0) finishDisconnect(target.slot);
+        }
     }
 
     private void finishDisconnect(int slot) {

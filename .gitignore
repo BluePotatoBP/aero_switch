@@ -6,3 +6,6 @@ run/
 bin/
 tmp/
 logs/
+
+# Tools ignored to keep the repository clean, trust me its nothing special
+/tools
