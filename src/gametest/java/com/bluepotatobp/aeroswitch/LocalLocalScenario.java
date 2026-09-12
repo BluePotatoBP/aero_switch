@@ -39,6 +39,13 @@ final class LocalLocalScenario {
     private int movementTicks;
     private long pausedTime;
     private long runningTime;
+    private boolean stabilityPrimed;
+    private Vec3 stabilityFirst;
+    private double stabilityMaxDelta;
+    private int stabilityTicks;
+    private double stabilitySavedXo;
+    private double stabilitySavedYo;
+    private double stabilitySavedZo;
     private boolean executing;
 
     void tick(Minecraft client) {
@@ -111,6 +118,8 @@ final class LocalLocalScenario {
                     ScenarioSupport.require(sessions.focusPane(853, 0, 854, 480) && sessions.focusedSlot() == 1,
                             "Right pane must focus session B");
                     sessions.focus(0);
+                    playerA.setXRot(0.0F);
+                    playerA.setYRot(0.0F);
                     movementStartA = playerA.position();
                     movementStartB = playerB.position();
                     movementPitchB = playerB.getXRot();
@@ -134,7 +143,9 @@ final class LocalLocalScenario {
                     }
                     client.options.keyUp.setDown(false);
                     ScenarioSupport.require(Math.abs(playerA.getXRot() - movementPitchA) > 30.0F,
-                            "Continuous mouse input did not noticeably tilt the focused camera");
+                            "Continuous mouse input did not noticeably tilt the focused camera (windowActive="
+                                    + client.isWindowActive() + " grabbed=" + client.mouseHandler.isMouseGrabbed()
+                                    + " dx=" + (playerA.getXRot() - movementPitchA) + ")");
                     ScenarioSupport.require(Math.abs(playerA.getYRot() - movementYawA) > 30.0F,
                             "Continuous mouse input did not noticeably turn the focused camera");
                     ScenarioSupport.require(Math.abs(playerB.getXRot() - movementPitchB) < 0.01F
@@ -184,6 +195,38 @@ final class LocalLocalScenario {
                     if (!sampleA.isDone() || !sampleB.isDone()) return;
                     ScenarioSupport.require(sampleA.join().time() == pausedTime, "A simulation advanced despite pause");
                     ScenarioSupport.require(sampleB.join().time() > runningTime, "B stopped advancing while A was paused");
+                    transition(Phase.PAUSE_STABILITY);
+                }
+                case PAUSE_STABILITY -> {
+                    // A is paused and backgrounded but still carries the interpolation
+                    // baseline from the frame focus left it. Widen that window
+                    // deterministically: nothing overwrites xo/yo/zo while A is paused,
+                    // so the camera interpolates xo -> x. If the pane reused the FOCUSED
+                    // session's cycling partial tick it would walk these 4 blocks and snap
+                    // back every render (rubber banding); a frozen partial tick holds still.
+                    if (!stabilityPrimed) {
+                        stabilityPrimed = true;
+                        stabilitySavedXo = playerA.xo;
+                        stabilitySavedYo = playerA.yo;
+                        stabilitySavedZo = playerA.zo;
+                        playerA.xo = playerA.getX() - 4.0;
+                        playerA.yo = playerA.getY();
+                        playerA.zo = playerA.getZ();
+                        sessions.setInactiveFps(0, 60);
+                        waitTicks = 3;
+                        return;
+                    }
+                    Vec3 camera = sessions.sessionCameraPosition(0);
+                    if (stabilityFirst == null) stabilityFirst = camera;
+                    else stabilityMaxDelta = Math.max(stabilityMaxDelta, stabilityFirst.distanceTo(camera));
+                    if (++stabilityTicks < 20) return;
+                    playerA.xo = stabilitySavedXo;
+                    playerA.yo = stabilitySavedYo;
+                    playerA.zo = stabilitySavedZo;
+                    sessions.setInactiveFps(0, 5);
+                    ScenarioSupport.require(stabilityMaxDelta < 0.01,
+                            "Paused background pane drifted " + stabilityMaxDelta
+                                    + " blocks across renders instead of holding a frozen partial tick");
                     sessions.setKeepRunning(0, true);
                     transition(Phase.RUN_SAMPLE);
                     waitTicks = 30;
@@ -263,6 +306,6 @@ final class LocalLocalScenario {
 
     private enum Phase {
         TITLE, FIRST, SECOND, MOVEMENT_ASSERT, PAUSE_SAMPLE, PAUSE_READ, PAUSE_COMPARE, PAUSE_ASSERT,
-        RUN_SAMPLE, RUN_ASSERT, SWITCHING, CLOSED_FIRST, CLOSED_BOTH, REOPEN, PERSISTED, FINISH, DONE
+        PAUSE_STABILITY, RUN_SAMPLE, RUN_ASSERT, SWITCHING, CLOSED_FIRST, CLOSED_BOTH, REOPEN, PERSISTED, FINISH, DONE
     }
 }

@@ -74,6 +74,7 @@ final class SessionLifecycle {
             target.occupied = false;
             owner.screens.discardStash(target.slot);
             BetterF3Compat.reset(target.slot);
+            RainFogScope.reset(target.slot);
             target.generation++;
             owner.mc().gui.hud.onDisconnected();
             owner.mc().gui.setScreen(screen);

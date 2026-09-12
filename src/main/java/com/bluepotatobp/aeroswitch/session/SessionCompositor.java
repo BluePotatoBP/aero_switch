@@ -7,6 +7,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import org.lwjgl.opengl.GL43C;
 
 /** Composites per-session render targets into the presentation target and drives offscreen renders. */
@@ -54,10 +55,67 @@ final class SessionCompositor {
         return owner.require(slot).renderer.mainCamera().entity();
     }
 
+    /**
+     * Position the render camera of session {@code slot} was last left at, i.e. the
+     * interpolated camera position of its most recent (offscreen or focused) render.
+     * Used by the scenario harness to prove a paused pane does not drift.
+     */
+    Vec3 sessionCameraPosition(int slot) {
+        owner.checkThread();
+        owner.adopt();
+        return owner.require(slot).renderer.mainCamera().position();
+    }
+
+    /** Interpolation phase handed to a paused pane: the end of its last ticked frame. */
+    private static final float FROZEN_PARTIAL_TICK = 1.0F;
+
+    /**
+     * Picks the delta tracker a pane is rendered with.
+     * <p>
+     * A paused session does not tick, so its entities and camera stay at the
+     * positions from their last ticked frame. The shared {@link Minecraft#getDeltaTracker()}
+     * partial tick belongs to the FOCUSED session and keeps cycling 0..1, so
+     * re-interpolating those frozen positions with it walks the pane one tick
+     * forward and snaps it back on every render ("rubber banding", worst at high
+     * inactive FPS). Vanilla freezes the partial tick while paused for the same
+     * reason, so hand paused panes a tracker with a pinned partial tick and leave
+     * running panes on the live clock. Nothing here touches entity or player velocity.
+     */
+    static DeltaTracker renderTracker(boolean paused, DeltaTracker live) {
+        return paused ? new FrozenTracker(live) : live;
+    }
+
+    /**
+     * Paused-pane tracker: pins only the interpolation phase, exactly like vanilla's
+     * own paused timer, which freezes the partial tick but keeps reporting delta ticks.
+     * <p>
+     * The delta ticks must stay live. {@code DeltaTracker.ONE} reports a whole tick of
+     * game time per frame, and per-frame consumers read that as real elapsed time - the
+     * rain-fog smoothing in {@code AtmosphericFogEnvironment} steps by
+     * {@code getGameTimeDeltaTicks() * 0.2} every render, so a paused pane would yank
+     * that shared state 20% per render.
+     */
+    private record FrozenTracker(DeltaTracker live) implements DeltaTracker {
+        @Override
+        public float getGameTimeDeltaTicks() {
+            return live.getGameTimeDeltaTicks();
+        }
+
+        @Override
+        public float getGameTimeDeltaPartialTick(boolean ignoreFrozenGame) {
+            return FROZEN_PARTIAL_TICK;
+        }
+
+        @Override
+        public float getRealtimeDeltaTicks() {
+            return live.getRealtimeDeltaTicks();
+        }
+    }
+
     /** Renders one inactive session offscreen (into its own target) at its throttled cadence. */
     void renderActiveOffscreen(ClientSession session) {
         Minecraft client = owner.mc();
-        DeltaTracker deltaTracker = client.getDeltaTracker();
+        DeltaTracker deltaTracker = renderTracker(owner.scheduler.shouldPause(session), client.getDeltaTracker());
         client.gui.update();
         if (client.isGameLoadFinished() && client.level != null) client.level.update();
         client.gameRenderer.update(deltaTracker);

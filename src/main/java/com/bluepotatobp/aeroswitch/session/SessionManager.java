@@ -13,6 +13,7 @@ import net.minecraft.network.PacketListener;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.storage.LevelStorageSource;
+import net.minecraft.world.phys.Vec3;
 
 /** Client-thread-confined multi-session scheduler with pane layouts. */
 public final class SessionManager {
@@ -490,6 +491,10 @@ public final class SessionManager {
 
     public Entity sessionCameraEntity(int slot) {
         return compositor.sessionCameraEntity(slot);
+    }
+
+    public Vec3 sessionCameraPosition(int slot) {
+        return compositor.sessionCameraPosition(slot);
     }
 
     public void serviceDuringWait() {
