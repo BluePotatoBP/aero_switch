@@ -51,17 +51,14 @@ final class SessionCards {
             float buttonWidth = (ImGui.getContentRegionAvailX() - spacing) / 2.0F;
             ImGui.beginDisabled(focused);
             if (ImGui.button("Focus##" + slot, buttonWidth, 28.0F * ImGuiSessionOverlay.guiScale)) {
-                ImGuiSessionOverlay.defer(client, () -> {
-                    manager.focus(slot);
-                    client.gui.setScreen(null);
-                });
+                ImGuiSessionOverlay.defer(client, () -> manager.focus(slot));
             }
             ImGui.endDisabled();
             ImGui.sameLine();
             if (ImGui.button("Save / close##" + slot, buttonWidth, 28.0F * ImGuiSessionOverlay.guiScale)) {
                 ImGuiSessionOverlay.defer(client, () -> {
                     manager.close(slot);
-                    client.gui.setScreen(new SessionScreen());
+                    manager.openDeck();
                 });
             }
 

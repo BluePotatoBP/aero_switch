@@ -47,7 +47,7 @@ final class ManagerTabs {
             if (ImGui.button("Done", doneWidth, 32.0F * ImGuiSessionOverlay.guiScale)) {
                 ImGuiSessionOverlay.defer(client, () -> {
                     SessionControls.cancelRebind();
-                    client.gui.setScreen(null);
+                    manager.closeDeck();
                 });
             }
         }

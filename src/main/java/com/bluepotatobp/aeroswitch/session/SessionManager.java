@@ -2,7 +2,6 @@ package com.bluepotatobp.aeroswitch.session;
 
 import com.bluepotatobp.aeroswitch.compat.ModCompatibility;
 import com.bluepotatobp.aeroswitch.config.AeroSwitchConfig;
-import com.bluepotatobp.aeroswitch.ui.SessionScreen;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -174,7 +173,7 @@ public final class SessionManager {
             slots[target] = next;
         }
         KeyMapping.releaseAll();
-        if (mc().gui.screen() instanceof SessionScreen) mc().gui.setScreen(null);
+        screens.closeDeck();
         active = next;
         focused = target;
         next.install(mc());
@@ -191,7 +190,7 @@ public final class SessionManager {
         if (scoped != 0) throw new IllegalStateException("Cannot change focus inside a scoped callback");
         if (target == active) return;
         KeyMapping.releaseAll();
-        if (mc().gui.screen() instanceof SessionScreen) mc().gui.setScreen(null);
+        screens.closeDeck();
         active.capture(mc());
         active = target;
         focused = slot;
@@ -333,6 +332,14 @@ public final class SessionManager {
 
     public void setFocusedScreen(Screen screen) {
         screens.setFocused(screen);
+    }
+
+    public void openDeck() {
+        screens.openDeck();
+    }
+
+    public void closeDeck() {
+        screens.closeDeck();
     }
 
     public boolean focusPane(double x, double y, int width, int height) {

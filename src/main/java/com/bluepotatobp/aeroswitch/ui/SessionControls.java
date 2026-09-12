@@ -114,8 +114,12 @@ public final class SessionControls {
 
         if (managerKey.matches(event)) {
             boolean wasOpen = manager.focusedScreen() instanceof SessionScreen;
-            manager.setFocusedScreen(wasOpen ? null : new SessionScreen());
-            if (wasOpen) cancelRebind();
+            if (wasOpen) {
+                manager.closeDeck();
+                cancelRebind();
+            } else {
+                manager.openDeck();
+            }
             return true;
         }
         if (switchKey.matches(event)) {

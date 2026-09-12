@@ -72,6 +72,7 @@ final class SessionLifecycle {
             ((SessionMinecraftAccessor) owner.mc()).aero$pause(false);
             target.connection = null;
             target.occupied = false;
+            owner.screens.discardStash(target.slot);
             BetterF3Compat.reset(target.slot);
             target.generation++;
             owner.mc().gui.hud.onDisconnected();

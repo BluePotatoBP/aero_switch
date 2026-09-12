@@ -8,6 +8,7 @@ public final class SessionScenarioClient implements ClientModInitializer {
     private final LocalLocalScenario localLocal = new LocalLocalScenario();
     private final CreativeTabsScenario creativeTabs = new CreativeTabsScenario();
     private final DebugOverlayScenario debugOverlay = new DebugOverlayScenario();
+    private final DeckStashScenario deckStash = new DeckStashScenario();
 
     @Override
     public void onInitializeClient() {
@@ -19,6 +20,8 @@ public final class SessionScenarioClient implements ClientModInitializer {
             ClientTickEvents.END_CLIENT_TICK.register(creativeTabs::tick);
         } else if (scenario.equals("debug-overlay")) {
             ClientTickEvents.END_CLIENT_TICK.register(debugOverlay::tick);
+        } else if (scenario.equals("deck-stash")) {
+            ClientTickEvents.END_CLIENT_TICK.register(deckStash::tick);
         }
     }
 }
